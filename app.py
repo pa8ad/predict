@@ -537,7 +537,7 @@ def init_state():
         st.session_state.listener = None
 
 
-def main():
+def streamlit_main():
     st.set_page_config(page_title="AI Contest Assistant", layout="wide")
     init_state()
 
@@ -560,7 +560,11 @@ def main():
 
     listener_running = st.session_state.listener is not None
     if st.sidebar.button("Start UDP listener", disabled=listener_running):
-        st.session_state.listener = UDPListener(host, int(port), lambda t: process_packet(t, st.session_state.contest_state))
+        st.session_state.listener = UDPListener(
+            host,
+            int(port),
+            lambda t: process_packet(t, st.session_state.contest_state),
+        )
         st.session_state.listener.start()
         st.session_state.contest_state.log_event(f"UDP listener started on {host}:{port}")
 
@@ -573,5 +577,72 @@ def main():
     render_dashboard(st.session_state.contest_state, config)
 
 
+def run_console_listener(host: str, port: int, mycall: str, max_age: int):
+    """Headless mode for running without Streamlit."""
+
+    state = ContestState()
+    weights = {
+        "mult": 10.0,
+        "band_mult": 5.0,
+        "fresh": 3.0,
+        "snr": 2.0,
+        "band_penalty": 5.0,
+        "dupe_penalty": 4.0,
+    }
+
+    listener = UDPListener(host, port, lambda t: process_packet(t, state))
+    listener.start()
+    state.log_event(f"Console UDP listener started on {host}:{port}")
+
+    try:
+        while True:
+            qsos, points, mults = state.totals()
+            rates = {w: state.qso_rate(w) for w in (1, 5, 15)}
+            spots = state.get_spots()
+            ranked = []
+            for spot in spots:
+                score, band_key, is_mult = score_spot(
+                    spot, state, weights, max_age, DEFAULT_BANDPLAN
+                )
+                ranked.append((score, spot, band_key, is_mult))
+            ranked.sort(key=lambda x: x[0], reverse=True)
+
+            print("--- Contest snapshot ---")
+            print(f"QSOs: {qsos}  Points: {points}  Prefixes: {mults}")
+            print(
+                f"Rates 1/5/15m: {rates[1]:.1f}/{rates[5]:.1f}/{rates[15]:.1f}"\
+            )
+            print("Top spots:")
+            for score, spot, band_key, is_mult in ranked[:5]:
+                why = "new mult" if is_mult else ""
+                print(
+                    f"  {spot.dx_call} {spot.frequency:.1f}kHz {band_key} age {spot.age_minutes:.1f}m "
+                    f"SNR {spot.snr_db or '-'} WPM {spot.wpm or '-'} score {score:.1f} {why}"
+                )
+            print("Event log (latest 5):")
+            for line in list(state.event_log)[:5]:
+                print("  ", line)
+            print("-----------------------\n")
+            # Refresh every 5 seconds
+            threading.Event().wait(5)
+    except KeyboardInterrupt:
+        print("Stopping listener...")
+    finally:
+        listener.stop()
+
+
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="AI Contest Assistant")
+    parser.add_argument("mode", choices=["console", "streamlit"], nargs="?", default="console")
+    parser.add_argument("--host", default=DEFAULT_HOST)
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--max-age", type=int, default=DEFAULT_SPOT_MAX_AGE_MINUTES)
+    parser.add_argument("--mycall", default="N0CALL")
+    args = parser.parse_args()
+
+    if args.mode == "console":
+        run_console_listener(args.host, args.port, args.mycall, args.max_age)
+    else:
+        streamlit_main()

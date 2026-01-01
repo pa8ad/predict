@@ -12,12 +12,20 @@ pip install streamlit
 ```
 
 ## Starten
+### Streamlit-dashboard
 1. Start de Streamlit-app:
 ```bash
 streamlit run app.py
 ```
 2. Stel in de zijbalk host/poort in (standaard `0.0.0.0:12060`) en klik op **Start UDP listener**.
 3. Open de getoonde lokale URL in je browser (typisch `http://localhost:8501`).
+
+### Console-headless mode
+Wil je zonder Streamlit draaien (bijv. direct in Python), gebruik de consolemodus:
+```bash
+python app.py console --host 0.0.0.0 --port 12060 --max-age 20 --mycall N0CALL
+```
+De consoleprint toont elke 5 seconden een snapshot van QSOs, rates, multipliers en de hoogst scorende spots. Stop met `Ctrl+C`.
 
 ## UDP simulator
 Gebruik de meegeleverde simulator om testberichten te sturen:
