@@ -565,21 +565,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.start_button.clicked.connect(self.start_listener)
         self.stop_button.clicked.connect(self.stop_listener)
 
-        # Radio summary table (Radio 1 and 2 on one line)
-        self.radio_table = QtWidgets.QTableWidget()
-        self.radio_table.setColumnCount(6)
-        self.radio_table.setHorizontalHeaderLabels(
-            ["R1 Freq", "R1 Run", "R1 Focus", "R2 Freq", "R2 Run", "R2 Focus"]
-        )
-        self.radio_table.setRowCount(1)
-        header = self.radio_table.horizontalHeader()
-        header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
-        header.setStretchLastSection(True)
-        self.radio_table.verticalHeader().setVisible(False)
-        self.radio_table.setMaximumHeight(60)
-        layout.addWidget(QtWidgets.QLabel("Radios"))
-        layout.addWidget(self.radio_table)
-
         # Scoreboard and actions
         self.score_group = QtWidgets.QGroupBox("Scoreboard")
         score_layout = QtWidgets.QGridLayout()
@@ -707,8 +692,6 @@ class MainWindow(QtWidgets.QMainWindow):
         readable_mults = {f"{display_band_label(b)}m": v for b, v in band_mults.items()}
         self.band_mults_label.setText(f"Band mults: {readable_mults}")
 
-        self._update_radio_table()
-
         # Spots
         weights = self._current_weights()
         bandplan = self.config.get("bandplan", DEFAULT_BANDPLAN)
@@ -745,19 +728,6 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             self.primary_action.setText("Keep running; no high-value spots available.")
             self.actions_text.clear()
-
-    def _update_radio_table(self):
-        radios = [self.state.radios[1], self.state.radios[2]]
-        values = []
-        for radio in radios:
-            freq_text = f"{(radio.freq or 0)/100:.1f} kHz" if radio.freq else "-"
-            running_text = "Yes" if radio.is_running else "No"
-            focus_text = "Yes" if radio.focus_radio_nr == radio.radio_nr else "No"
-            values.extend([freq_text, running_text, focus_text])
-
-        for col_idx, val in enumerate(values):
-            item = QtWidgets.QTableWidgetItem(val)
-            self.radio_table.setItem(0, col_idx, item)
 
     def start_listener(self):
         host = self.host_input.text() or DEFAULT_HOST
