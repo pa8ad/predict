@@ -227,13 +227,8 @@ class ContestState:
     def qso_rate(self, minutes: int) -> float:
         cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
         with self.lock:
-            while self.qso_timestamps and self.qso_timestamps[0] < cutoff:
-                self.qso_timestamps.popleft()
-            return (
-                len([t for t in self.qso_timestamps if t >= cutoff]) / minutes
-                if minutes > 0
-                else 0.0
-            )
+            recent = [t for t in self.qso_timestamps if t >= cutoff]
+            return len(recent) / minutes if minutes > 0 else 0.0
 
     def get_spots(self) -> List[Spot]:
         now = datetime.now(UTC)
@@ -540,7 +535,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.port_input = QtWidgets.QSpinBox()
         self.port_input.setMaximum(65535)
         self.port_input.setValue(int(self.config.get("port", DEFAULT_PORT)))
-        self.call_input = QtWidgets.QLineEdit(self.config.get("mycall", "N0CALL"))
         self.max_age_input = QtWidgets.QSpinBox()
         self.max_age_input.setRange(1, 120)
         self.max_age_input.setValue(int(self.config.get("max_age", DEFAULT_SPOT_MAX_AGE_MINUTES)))
@@ -554,8 +548,6 @@ class MainWindow(QtWidgets.QMainWindow):
         controls.addWidget(self.host_input)
         controls.addWidget(QtWidgets.QLabel("Port"))
         controls.addWidget(self.port_input)
-        controls.addWidget(QtWidgets.QLabel("My call"))
-        controls.addWidget(self.call_input)
         controls.addWidget(QtWidgets.QLabel("Contest"))
         controls.addWidget(self.contest_select)
         controls.addWidget(QtWidgets.QLabel("Max spot age (min)"))
@@ -567,13 +559,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.start_button.clicked.connect(self.start_listener)
         self.stop_button.clicked.connect(self.stop_listener)
 
-        # Radio panels
-        radio_layout = QtWidgets.QHBoxLayout()
-        self.radio1_widget = self._radio_panel("Radio 1")
-        self.radio2_widget = self._radio_panel("Radio 2")
-        radio_layout.addWidget(self.radio1_widget)
-        radio_layout.addWidget(self.radio2_widget)
-        layout.addLayout(radio_layout)
+        # Radio summary table (compact single line per radio)
+        self.radio_table = QtWidgets.QTableWidget()
+        self.radio_table.setColumnCount(4)
+        self.radio_table.setHorizontalHeaderLabels(["Radio", "Freq", "Running", "Focus"])
+        self.radio_table.setRowCount(2)
+        header = self.radio_table.horizontalHeader()
+        header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
+        header.setStretchLastSection(True)
+        self.radio_table.verticalHeader().setVisible(False)
+        self.radio_table.setMaximumHeight(90)
+        layout.addWidget(QtWidgets.QLabel("Radios"))
+        layout.addWidget(self.radio_table)
 
         # Scoreboard and actions
         self.score_group = QtWidgets.QGroupBox("Scoreboard")
@@ -593,9 +590,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.actions_group = QtWidgets.QGroupBox("Next best actions")
         actions_layout = QtWidgets.QVBoxLayout()
         self.actions_group.setLayout(actions_layout)
+        self.primary_action = QtWidgets.QLabel("")
+        primary_font = self.primary_action.font()
+        primary_font.setPointSize(primary_font.pointSize() + 2)
+        primary_font.setBold(True)
+        self.primary_action.setFont(primary_font)
+        self.primary_action.setWordWrap(True)
         self.actions_text = QtWidgets.QTextEdit()
         self.actions_text.setReadOnly(True)
-        self.actions_text.setFixedHeight(90)
+        self.actions_text.setFixedHeight(70)
+        actions_layout.addWidget(self.primary_action)
         actions_layout.addWidget(self.actions_text)
 
         stats_layout = QtWidgets.QHBoxLayout()
@@ -646,7 +650,7 @@ class MainWindow(QtWidgets.QMainWindow):
         header = self.spot_table.horizontalHeader()
         header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
         header.setStretchLastSection(True)
-        self.spot_table.setMaximumHeight(170)
+        self.spot_table.setMaximumHeight(140)
         layout.addWidget(QtWidgets.QLabel("High value spots"))
         layout.addWidget(self.spot_table)
 
@@ -658,22 +662,6 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.log_view)
 
         self.setCentralWidget(central)
-
-    def _radio_panel(self, title: str) -> QtWidgets.QGroupBox:
-        group = QtWidgets.QGroupBox(title)
-        layout = QtWidgets.QFormLayout()
-        group.setLayout(layout)
-        labels = {
-            "freq": QtWidgets.QLabel("-"),
-            "running": QtWidgets.QLabel("-"),
-            "focus": QtWidgets.QLabel("-"),
-        }
-        group.setMaximumWidth(220)
-        layout.addRow("Freq", labels["freq"])
-        layout.addRow("Running", labels["running"])
-        layout.addRow("Focus", labels["focus"])
-        group.labels = labels  # type: ignore[attr-defined]
-        return group
 
     def refresh_views(self):
         qsos, points, mults = self.state.totals()
@@ -687,8 +675,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self.band_mults_label.setText(f"Band mults: {band_mults}")
 
-        self._update_radio_panel(self.radio1_widget, self.state.radios[1])
-        self._update_radio_panel(self.radio2_widget, self.state.radios[2])
+        self._update_radio_table()
 
         # Spots
         weights = self._current_weights()
@@ -700,8 +687,8 @@ class MainWindow(QtWidgets.QMainWindow):
             score, band_key, is_mult = score_spot(spot, self.state, weights, max_age, bandplan)
             rows.append((score, spot, band_key, is_mult))
         rows.sort(key=lambda x: x[0], reverse=True)
-        self.spot_table.setRowCount(min(len(rows), 8))
-        for row_idx, (score, spot, band_key, is_mult) in enumerate(rows[:8]):
+        self.spot_table.setRowCount(min(len(rows), 5))
+        for row_idx, (score, spot, band_key, is_mult) in enumerate(rows[:5]):
             freq_text = f"{spot.frequency:.1f}" if spot.frequency > 0 else "-"
             band_text = band_key or "-"
             values = [
@@ -719,8 +706,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.spot_table.setItem(row_idx, col, item)
 
         # Actions
-        actions = best_actions(self.state, weights, max_age, bandplan, self.call_input.text())
-        self.actions_text.setPlainText("\n".join(actions))
+        actions = best_actions(self.state, weights, max_age, bandplan, "")
+        if actions:
+            self.primary_action.setText(actions[0])
+            self.actions_text.setPlainText("\n".join(actions[1:]))
+        else:
+            self.primary_action.setText("Keep running; no high-value spots available.")
+            self.actions_text.clear()
 
         # Event log
         warnings_and_errors = [
@@ -729,19 +721,22 @@ class MainWindow(QtWidgets.QMainWindow):
         log_lines = [text for _, text in warnings_and_errors][:80]
         self.log_view.setPlainText("\n".join(log_lines))
 
-    def _update_radio_panel(self, panel: QtWidgets.QGroupBox, radio: RadioStatus):
-        labels = panel.labels  # type: ignore[attr-defined]
-        freq_text = f"{radio.freq or '-'} Hz"
-        labels["freq"].setText(freq_text)
-        labels["running"].setText("Yes" if radio.is_running else "No")
-        labels["focus"].setText(str(radio.focus_radio_nr or "-"))
+    def _update_radio_table(self):
+        for row_idx, radio_nr in enumerate(sorted(self.state.radios)):
+            radio = self.state.radios[radio_nr]
+            freq_text = f"{(radio.freq or 0)/100:.2f} kHz" if radio.freq else "-"
+            running_text = "Yes" if radio.is_running else "No"
+            focus_text = "Yes" if radio.focus_radio_nr == radio_nr else "No"
+            values = [f"Radio {radio_nr}", freq_text, running_text, focus_text]
+            for col_idx, val in enumerate(values):
+                item = QtWidgets.QTableWidgetItem(val)
+                self.radio_table.setItem(row_idx, col_idx, item)
 
     def start_listener(self):
         host = self.host_input.text() or DEFAULT_HOST
         port = int(self.port_input.value())
         self.config["host"] = host
         self.config["port"] = port
-        self.config["mycall"] = self.call_input.text()
         self.config["max_age"] = int(self.max_age_input.value())
         self.config["contest"] = self.contest_select.currentText()
         self.config["weights"] = self._current_weights()
