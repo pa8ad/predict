@@ -18,6 +18,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 12060
 DEFAULT_SPOT_MAX_AGE_MINUTES = 20
+DEFAULT_CONTEST = "CQ WPX CW"
 DEFAULT_BANDPLAN = {
     "1.8": (1800, 1845),
     "3.5": (3500, 3560),
@@ -38,6 +39,16 @@ def normalized_band(value: str) -> str:
     """Normalize band strings like "3,5" -> "3.5"."""
 
     return value.replace(",", ".").strip()
+
+
+def call_prefix(call: str) -> Optional[str]:
+    if not call:
+        return None
+    match = re.match(r"([A-Z]{1,3}\d)[A-Z0-9]*", call.upper())
+    if match:
+        return match.group(1)
+    simple = call[:3].upper()
+    return simple or None
 
 
 @dataclass
@@ -81,6 +92,16 @@ class Spot:
     age_minutes: float
     snr_db: Optional[float] = None
     wpm: Optional[int] = None
+
+
+@dataclass
+class ContestProfile:
+    name: str
+    mult_label: str
+    description: str
+    default_weights: Dict[str, float]
+    contact_key: Callable[[Contact], Optional[str]]
+    spot_key: Callable[[Spot], Optional[str]]
 
 
 class ContestState:
@@ -213,16 +234,28 @@ class ContestState:
                 self.prefixes_by_band[c.band].add(c.prefix)
                 self.total_prefixes.add(c.prefix)
 
-    def totals(self):
+    def multiplier_sets(self, profile: "ContestProfile") -> Tuple[Dict[str, set], set]:
+        with self.lock:
+            per_band: Dict[str, set] = defaultdict(set)
+            total: set = set()
+            for contact in self.contacts.values():
+                mult = profile.contact_key(contact)
+                if not mult:
+                    continue
+                per_band[contact.band].add(mult)
+                total.add(mult)
+            return per_band, total
+
+    def totals(self, profile: "ContestProfile"):
         with self.lock:
             qsos = len(self.contacts)
             points = sum(c.points for c in self.contacts.values())
-            mults = len(self.total_prefixes)
-        return qsos, points, mults
+        per_band, total = self.multiplier_sets(profile)
+        return qsos, points, len(total)
 
-    def band_mults(self):
-        with self.lock:
-            return {band: len(prefixes) for band, prefixes in self.prefixes_by_band.items()}
+    def band_mults(self, profile: "ContestProfile"):
+        per_band, _ = self.multiplier_sets(profile)
+        return {band: len(prefixes) for band, prefixes in per_band.items()}
 
     def qso_rate(self, minutes: int) -> float:
         cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
@@ -292,6 +325,86 @@ def safe_float(value: Optional[str], default: float = 0.0) -> float:
 
 
 # -----------------------------
+# Contest profiles
+# -----------------------------
+
+
+def wpx_prefix_from_contact(contact: Contact) -> Optional[str]:
+    return contact.prefix or call_prefix(contact.call)
+
+
+def country_prefix_from_contact(contact: Contact) -> Optional[str]:
+    return (contact.country_prefix or "").upper() or call_prefix(contact.call)
+
+
+def wpx_prefix_from_spot(spot: Spot) -> Optional[str]:
+    return call_prefix(spot.dx_call)
+
+
+def contest_profiles() -> Dict[str, ContestProfile]:
+    return {
+        "CQ WPX CW": ContestProfile(
+            name="CQ WPX CW",
+            mult_label="Prefixes",
+            description="WPX prefixes per band; emphasis on new prefixes and band-prefixes.",
+            default_weights={
+                "mult": 10.0,
+                "band_mult": 5.0,
+                "fresh": 3.0,
+                "snr": 2.0,
+                "band_penalty": 5.0,
+                "dupe_penalty": 4.0,
+                "run_floor": 1.0,
+                "rate5_bias": 0.8,
+                "rate15_bias": 0.5,
+            },
+            contact_key=wpx_prefix_from_contact,
+            spot_key=wpx_prefix_from_spot,
+        ),
+        "CQ WW DX CW": ContestProfile(
+            name="CQ WW DX CW",
+            mult_label="Countries",
+            description="Country multipliers per band; prioritizes new DXCC on each band.",
+            default_weights={
+                "mult": 12.0,
+                "band_mult": 6.0,
+                "fresh": 3.0,
+                "snr": 2.0,
+                "band_penalty": 5.0,
+                "dupe_penalty": 5.0,
+                "run_floor": 1.2,
+                "rate5_bias": 0.9,
+                "rate15_bias": 0.6,
+            },
+            contact_key=country_prefix_from_contact,
+            spot_key=wpx_prefix_from_spot,
+        ),
+        "IARU HF": ContestProfile(
+            name="IARU HF",
+            mult_label="HQ/ITU",
+            description="HQ/administration prefixes per band; balanced for mixed multiplier/point chasing.",
+            default_weights={
+                "mult": 9.0,
+                "band_mult": 4.0,
+                "fresh": 3.0,
+                "snr": 2.0,
+                "band_penalty": 5.0,
+                "dupe_penalty": 4.0,
+                "run_floor": 1.0,
+                "rate5_bias": 0.7,
+                "rate15_bias": 0.5,
+            },
+            contact_key=country_prefix_from_contact,
+            spot_key=wpx_prefix_from_spot,
+        ),
+    }
+
+
+def contest_profile(name: str) -> ContestProfile:
+    return contest_profiles().get(name, contest_profiles()[DEFAULT_CONTEST])
+
+
+# -----------------------------
 # Advisor heuristics
 # -----------------------------
 
@@ -302,18 +415,15 @@ def score_spot(
     weights: Dict[str, float],
     max_age_min: int,
     bandplan: Dict[str, Tuple[int, int]],
+    profile: ContestProfile,
+    per_band_mults: Dict[str, set],
+    total_mults: set,
 ):
     band = infer_band_from_freq(spot.frequency)
     band_key = normalized_band(band)
-    is_new_prefix = spot.dx_call[:3] not in state.total_prefixes  # rough estimate
-    is_new_band_prefix = False
-    with state.lock:
-        for prefix in state.prefixes_by_band.get(band_key, set()):
-            if spot.dx_call.startswith(prefix):
-                is_new_band_prefix = False
-                break
-        else:
-            is_new_band_prefix = True
+    mult_key = profile.spot_key(spot)
+    is_new_prefix = mult_key is not None and mult_key not in total_mults
+    is_new_band_prefix = mult_key is not None and mult_key not in per_band_mults.get(band_key, set())
     mult_value = (
         weights.get("mult", 10.0)
         if is_new_prefix
@@ -389,10 +499,12 @@ def best_actions(
     weights: Dict[str, float],
     max_age_min: int,
     bandplan: Dict[str, Tuple[int, int]],
+    profile: ContestProfile,
     mycall: str,
 ) -> List[str]:
     del mycall  # placeholder for future LLM integration
     spots = state.get_spots()
+    per_band_mults, total_mults = state.multiplier_sets(profile)
     # Running value: approximate opportunity cost of leaving a good run.
     rate_5 = state.qso_rate(5)
     rate_15 = state.qso_rate(15)
@@ -403,7 +515,9 @@ def best_actions(
     )
     scored = []
     for spot in spots:
-        score, band_key, is_mult = score_spot(spot, state, weights, max_age_min, bandplan)
+        score, band_key, is_mult = score_spot(
+            spot, state, weights, max_age_min, bandplan, profile, per_band_mults, total_mults
+        )
         scored.append((score, spot, band_key, is_mult))
     scored.sort(key=lambda x: x[0], reverse=True)
     actions = []
@@ -570,7 +684,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.state = state
         self.config = config
         self.listener: Optional[UDPListener] = None
-        self.setWindowTitle("AI Contest Assistant - CQ WPX CW")
+        self.setWindowTitle("AI Contest Assistant")
         self.resize(900, 500)
         self._build_ui()
         self.refresh_timer = QtCore.QTimer(self)
@@ -592,7 +706,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.max_age_input.setRange(1, 120)
         self.max_age_input.setValue(int(self.config.get("max_age", DEFAULT_SPOT_MAX_AGE_MINUTES)))
         self.contest_select = QtWidgets.QComboBox()
-        self.contest_select.addItems(["CQ WPX CW"])
+        for contest_name in contest_profiles().keys():
+            self.contest_select.addItem(contest_name)
+        contest_choice = self.config.get("contest", DEFAULT_CONTEST)
+        idx = self.contest_select.findText(contest_choice)
+        if idx >= 0:
+            self.contest_select.setCurrentIndex(idx)
         self.start_button = QtWidgets.QPushButton("Start listener")
         self.stop_button = QtWidgets.QPushButton("Stop")
         self.stop_button.setEnabled(False)
@@ -611,6 +730,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.start_button.clicked.connect(self.start_listener)
         self.stop_button.clicked.connect(self.stop_listener)
+        self.contest_select.currentTextChanged.connect(self._contest_changed)
 
         # Scoreboard and actions
         self.score_group = QtWidgets.QGroupBox("Scoreboard")
@@ -618,7 +738,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.score_group.setLayout(score_layout)
         self.qso_label = QtWidgets.QLabel("QSOs: 0")
         self.points_label = QtWidgets.QLabel("Points: 0")
-        self.mults_label = QtWidgets.QLabel("Prefixes: 0")
+        self.mults_label = QtWidgets.QLabel("Multipliers: 0")
         self.rate_label = QtWidgets.QLabel("Rates 1/5/15m: 0/0/0")
         self.band_mults_label = QtWidgets.QLabel("Band mults: {}")
         score_layout.addWidget(self.qso_label, 0, 0)
@@ -678,8 +798,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.weight_inputs: Dict[str, QtWidgets.QDoubleSpinBox] = {}
 
         tooltips = {
-            "mult": "Weight for all-time new prefixes (highest priority targets).",
-            "band_mult": "Weight for prefixes new to a specific band (secondary targets).",
+            "mult": "Weight for all-time new multipliers in the selected contest.",
+            "band_mult": "Weight for multipliers new to this band.",
             "fresh": "How quickly older spots lose value; higher = prefer newer spots.",
             "snr": "Boost for stronger SNR reports; negative SNR lowers value.",
             "band_penalty": "Penalty for spots outside the configured CW segments.",
@@ -689,8 +809,10 @@ class MainWindow(QtWidgets.QMainWindow):
             "rate15_bias": "Longer-term run value per QSO/min over the last 15 minutes.",
         }
 
-        grid_positions = [(i // 2, (i % 2) * 2) for i in range(len(default_weights()))]
-        for (key, default), (row, col) in zip(default_weights().items(), grid_positions):
+        profile = contest_profile(contest_choice)
+        weight_items = list(profile.default_weights.items())
+        grid_positions = [(i // 2, (i % 2) * 2) for i in range(len(weight_items))]
+        for (key, default), (row, col) in zip(weight_items, grid_positions):
             label = QtWidgets.QLabel(f"{key} weight")
             label.setToolTip(tooltips.get(key, ""))
             spin = QtWidgets.QDoubleSpinBox()
@@ -703,7 +825,7 @@ class MainWindow(QtWidgets.QMainWindow):
             rules_layout.addWidget(label, row, col)
             rules_layout.addWidget(spin, row, col + 1)
 
-        self.rules_hint = QtWidgets.QLabel("Prefix mults per band; tweak weights to tune SO2R advice.")
+        self.rules_hint = QtWidgets.QLabel(profile.description)
         self.rules_hint.setWordWrap(True)
         rules_layout.addWidget(self.rules_hint, len(grid_positions), 0, 1, 4)
         layout.addWidget(rules_group)
@@ -717,23 +839,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(central)
 
     def refresh_views(self):
-        qsos, points, mults = self.state.totals()
-        band_mults = self.state.band_mults()
+        profile = contest_profile(self.contest_select.currentText())
+        qsos, points, mults = self.state.totals(profile)
+        band_mults = self.state.band_mults(profile)
         rates = {w: self.state.qso_rate(w) for w in (1, 5, 15)}
         self.qso_label.setText(f"QSOs: {qsos}")
         self.points_label.setText(f"Points: {points}")
-        self.mults_label.setText(f"Prefixes: {mults}")
+        self.mults_label.setText(f"{profile.mult_label}: {mults}")
         self.rate_label.setText(
             f"Rates 1/5/15m: {rates[1]:.1f}/{rates[5]:.1f}/{rates[15]:.1f}"
         )
         readable_mults = {f"{display_band_label(b)}m": v for b, v in band_mults.items()}
-        self.band_mults_label.setText(f"Band mults: {readable_mults}")
+        self.band_mults_label.setText(f"{profile.mult_label} per band: {readable_mults}")
 
         # Actions
         weights = self._current_weights()
         bandplan = self.config.get("bandplan", DEFAULT_BANDPLAN)
         max_age = int(self.max_age_input.value())
-        actions = best_actions(self.state, weights, max_age, bandplan, "")
+        actions = best_actions(self.state, weights, max_age, bandplan, profile, "")
         if actions:
             self.primary_action.setText(actions[0])
             self.actions_text.setPlainText("\n".join(actions[1:]))
@@ -747,6 +870,19 @@ class MainWindow(QtWidgets.QMainWindow):
         secondary_font = self.actions_text.font()
         secondary_font.setPointSize(int(size))
         self.actions_text.setFont(secondary_font)
+
+    def _contest_changed(self, name: str):
+        profile = contest_profile(name)
+        self.config["contest"] = name
+        for key, default in profile.default_weights.items():
+            if key in self.weight_inputs:
+                spin = self.weight_inputs[key]
+                spin.blockSignals(True)
+                spin.setValue(float(default))
+                spin.blockSignals(False)
+        self.config["weights"] = self._current_weights()
+        self.rules_hint.setText(profile.description)
+        self.refresh_views()
 
     def _listener_error(self, exc: Exception):
         def notify():
@@ -801,7 +937,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _current_weights(self) -> Dict[str, float]:
         if not hasattr(self, "weight_inputs"):
-            return self.config.get("weights", default_weights())
+            return self.config.get(
+                "weights", default_weights(self.contest_select.currentText())
+            )
         weights = {}
         for key, spin in self.weight_inputs.items():
             weights[key] = float(spin.value())
@@ -812,18 +950,8 @@ class MainWindow(QtWidgets.QMainWindow):
         super().closeEvent(event)
 
 
-def default_weights() -> Dict[str, float]:
-    return {
-        "mult": 10.0,
-        "band_mult": 5.0,
-        "fresh": 3.0,
-        "snr": 2.0,
-        "band_penalty": 5.0,
-        "dupe_penalty": 4.0,
-        "run_floor": 1.0,
-        "rate5_bias": 0.8,
-        "rate15_bias": 0.5,
-    }
+def default_weights(contest: str = DEFAULT_CONTEST) -> Dict[str, float]:
+    return dict(contest_profile(contest).default_weights)
 
 
 # -----------------------------
@@ -831,9 +959,10 @@ def default_weights() -> Dict[str, float]:
 # -----------------------------
 
 
-def run_console_listener(host: str, port: int, mycall: str, max_age: int):
+def run_console_listener(host: str, port: int, mycall: str, max_age: int, contest: str):
     state = ContestState()
-    weights = default_weights()
+    profile = contest_profile(contest)
+    weights = default_weights(contest)
     listener = UDPListener(host, port, lambda t: process_packet(t, state))
     if not listener.start():
         err = listener.failed_exc or OSError("Unknown UDP start failure")
@@ -845,19 +974,28 @@ def run_console_listener(host: str, port: int, mycall: str, max_age: int):
 
     try:
         while True:
-            qsos, points, mults = state.totals()
+            qsos, points, mults = state.totals(profile)
             rates = {w: state.qso_rate(w) for w in (1, 5, 15)}
             spots = state.get_spots()
+            per_band_mults, total_mults = state.multiplier_sets(profile)
             ranked = []
             for spot in spots:
                 score, band_key, is_mult = score_spot(
-                    spot, state, weights, max_age, DEFAULT_BANDPLAN
+                    spot,
+                    state,
+                    weights,
+                    max_age,
+                    DEFAULT_BANDPLAN,
+                    profile,
+                    per_band_mults,
+                    total_mults,
                 )
                 ranked.append((score, spot, band_key, is_mult))
             ranked.sort(key=lambda x: x[0], reverse=True)
 
             print("--- Contest snapshot ---")
-            print(f"QSOs: {qsos}  Points: {points}  Prefixes: {mults}")
+            print(f"Contest: {profile.name}")
+            print(f"QSOs: {qsos}  Points: {points}  {profile.mult_label}: {mults}")
             print(
                 f"Rates 1/5/15m: {rates[1]:.1f}/{rates[5]:.1f}/{rates[15]:.1f}"
             )
@@ -885,15 +1023,17 @@ def run_console_listener(host: str, port: int, mycall: str, max_age: int):
 # -----------------------------
 
 
-def run_gui(host: str, port: int, mycall: str, max_age: int):
+def run_gui(host: str, port: int, mycall: str, max_age: int, contest: str):
     app = QtWidgets.QApplication(sys.argv)
+    profile = contest_profile(contest)
     config = {
         "host": host,
         "port": port,
         "mycall": mycall,
         "max_age": max_age,
-        "weights": default_weights(),
+        "weights": default_weights(contest),
         "bandplan": DEFAULT_BANDPLAN,
+        "contest": profile.name,
     }
     state = ContestState()
     window = MainWindow(state, config)
@@ -908,9 +1048,10 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--max-age", type=int, default=DEFAULT_SPOT_MAX_AGE_MINUTES)
     parser.add_argument("--mycall", default="N0CALL")
+    parser.add_argument("--contest", choices=list(contest_profiles().keys()), default=DEFAULT_CONTEST)
     args = parser.parse_args()
 
     if args.mode == "console":
-        run_console_listener(args.host, args.port, args.mycall, args.max_age)
+        run_console_listener(args.host, args.port, args.mycall, args.max_age, args.contest)
     else:
-        run_gui(args.host, args.port, args.mycall, args.max_age)
+        run_gui(args.host, args.port, args.mycall, args.max_age, args.contest)
