@@ -1,6 +1,7 @@
+import argparse
 import asyncio
-import os
 import socket
+import sys
 import threading
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
@@ -8,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Callable, Deque, Dict, List, Optional, Tuple
 import xml.etree.ElementTree as ET
 
-import streamlit as st
+from PySide6 import QtCore, QtGui, QtWidgets
 
 # -----------------------------
 # Configuration defaults
@@ -26,6 +27,7 @@ DEFAULT_BANDPLAN = {
     "50": (50000, 50150),
 }
 
+
 # -----------------------------
 # Data models
 # -----------------------------
@@ -33,6 +35,7 @@ DEFAULT_BANDPLAN = {
 
 def normalized_band(value: str) -> str:
     """Normalize band strings like "3,5" -> "3.5"."""
+
     return value.replace(",", ".").strip()
 
 
@@ -114,7 +117,12 @@ class ContestState:
         self.log_event(f"Radio {radio_nr} update: {status.freq} Hz CW={status.mode}")
 
     def add_contact(self, info: Dict[str, str]):
-        contact_id = info.get("ID") or info.get("id") or info.get("uniqueid") or str(len(self.contacts) + 1)
+        contact_id = (
+            info.get("ID")
+            or info.get("id")
+            or info.get("uniqueid")
+            or str(len(self.contacts) + 1)
+        )
         ts = parse_timestamp(info.get("timestamp"))
         band = normalized_band(info.get("band", ""))
         rx_freq = self._safe_int(info.get("rxfreq"))
@@ -123,7 +131,9 @@ class ContestState:
         country_prefix = info.get("countryprefix", "")
         continent = info.get("continent", "")
         points = self._safe_int(info.get("points"), 0)
-        ismult = str(info.get("ismultiplierl", info.get("ismult1", info.get("ismult")))).lower() in {"1", "true", "yes"}
+        ismult = str(
+            info.get("ismultiplierl", info.get("ismult1", info.get("ismult")))
+        ).lower() in {"1", "true", "yes"}
         radio_nr = self._safe_int(info.get("radionr"))
         contact = Contact(
             contact_id=contact_id,
@@ -183,7 +193,11 @@ class ContestState:
         )
         with self.lock:
             if action.lower() == "remove":
-                self.spots = [s for s in self.spots if not (s.dx_call == dx_call and abs(s.frequency - freq) < 0.01)]
+                self.spots = [
+                    s
+                    for s in self.spots
+                    if not (s.dx_call == dx_call and abs(s.frequency - freq) < 0.01)
+                ]
             else:
                 self.spots.append(spot)
         self.log_event(f"Spot: {dx_call} {freq} kHz ({comment})")
@@ -212,7 +226,11 @@ class ContestState:
         with self.lock:
             while self.qso_timestamps and self.qso_timestamps[0] < cutoff:
                 self.qso_timestamps.popleft()
-            return len([t for t in self.qso_timestamps if t >= cutoff]) / minutes if minutes > 0 else 0.0
+            return (
+                len([t for t in self.qso_timestamps if t >= cutoff]) / minutes
+                if minutes > 0
+                else 0.0
+            )
 
     def get_spots(self) -> List[Spot]:
         cutoff = datetime.now(UTC) - timedelta(minutes=DEFAULT_SPOT_MAX_AGE_MINUTES)
@@ -236,7 +254,12 @@ class ContestState:
 def parse_timestamp(value: Optional[str]) -> datetime:
     if not value:
         return datetime.now(UTC)
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y/%m/%d %H:%M:%S.%f"):
+    for fmt in (
+        "%Y-%m-%d %H:%M:%S",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y/%m/%d %H:%M:%S.%f",
+    ):
         try:
             return datetime.strptime(value.replace("O", "0"), fmt).replace(tzinfo=UTC)
         except ValueError:
@@ -290,7 +313,13 @@ def safe_float(value: Optional[str], default: float = 0.0) -> float:
 # -----------------------------
 
 
-def score_spot(spot: Spot, state: ContestState, weights: Dict[str, float], max_age_min: int, bandplan: Dict[str, Tuple[int, int]]):
+def score_spot(
+    spot: Spot,
+    state: ContestState,
+    weights: Dict[str, float],
+    max_age_min: int,
+    bandplan: Dict[str, Tuple[int, int]],
+):
     band = infer_band_from_freq(spot.frequency)
     band_key = normalized_band(band)
     is_new_prefix = spot.dx_call[:3] not in state.total_prefixes  # rough estimate
@@ -302,7 +331,11 @@ def score_spot(spot: Spot, state: ContestState, weights: Dict[str, float], max_a
                 break
         else:
             is_new_band_prefix = True
-    mult_value = weights.get("mult", 10.0) if is_new_prefix else (weights.get("band_mult", 5.0) if is_new_band_prefix else 0.0)
+    mult_value = (
+        weights.get("mult", 10.0)
+        if is_new_prefix
+        else (weights.get("band_mult", 5.0) if is_new_band_prefix else 0.0)
+    )
     freshness = max(0.0, 1 - spot.age_minutes / max_age_min)
     freshness_score = freshness * weights.get("fresh", 3.0)
     snr_score = 0.0
@@ -352,7 +385,14 @@ def is_dupe(spot: Spot, state: ContestState, band: str) -> bool:
     return False
 
 
-def best_actions(state: ContestState, weights: Dict[str, float], max_age_min: int, bandplan: Dict[str, Tuple[int, int]], mycall: str) -> List[str]:
+def best_actions(
+    state: ContestState,
+    weights: Dict[str, float],
+    max_age_min: int,
+    bandplan: Dict[str, Tuple[int, int]],
+    mycall: str,
+) -> List[str]:
+    del mycall  # placeholder for future LLM integration
     spots = state.get_spots()
     scored = []
     for spot in spots:
@@ -372,7 +412,9 @@ def best_actions(state: ContestState, weights: Dict[str, float], max_age_min: in
         if spot.wpm:
             why.append(f"{spot.wpm} WPM")
         why_str = ", ".join(why) if why else "good spot"
-        actions.append(f"{rank+1}. Work {spot.dx_call} on {band_key}m @ {spot.frequency:.1f} kHz ({why_str}, score {score:.1f})")
+        actions.append(
+            f"{rank+1}. Work {spot.dx_call} on {band_key}m @ {spot.frequency:.1f} kHz ({why_str}, score {score:.1f})"
+        )
     if not actions:
         actions.append("Keep running; no high-value spots available.")
     return actions
@@ -407,7 +449,9 @@ class UDPListener:
     def _run(self):
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
-        listen = self.loop.create_datagram_endpoint(lambda: UDPProtocol(self.handler), local_addr=(self.host, self.port))
+        listen = self.loop.create_datagram_endpoint(
+            lambda: UDPProtocol(self.handler), local_addr=(self.host, self.port)
+        )
         self.transport, _ = self.loop.run_until_complete(listen)
         try:
             self.loop.run_forever()
@@ -423,12 +467,13 @@ class UDPProtocol(asyncio.DatagramProtocol):
         self.handler = handler
 
     def datagram_received(self, data: bytes, addr):
+        del addr
         text = data.decode(errors="ignore")
         self.handler(text)
 
 
 # -----------------------------
-# Streamlit UI helpers
+# Packet processing
 # -----------------------------
 
 
@@ -457,131 +502,235 @@ def process_packet(text: str, state: ContestState):
         state.log_event(f"Unhandled packet type: {tag}")
 
 
-def render_dashboard(state: ContestState, config: Dict[str, any]):
-    st.title("AI Contest Assistant - CQ WPX CW")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Radio 1")
-        render_radio(state.radios[1])
-    with col2:
-        st.subheader("Radio 2")
-        render_radio(state.radios[2])
-
-    qsos, points, mults = state.totals()
-    band_mults = state.band_mults()
-    rates = {w: state.qso_rate(w) for w in (1, 5, 15)}
-
-    st.subheader("Scoreboard")
-    score_cols = st.columns(4)
-    score_cols[0].metric("QSOs", qsos)
-    score_cols[1].metric("Points", points)
-    score_cols[2].metric("Prefixes", mults)
-    score_cols[3].metric("1/5/15m rate", f"{rates[1]:.1f}/{rates[5]:.1f}/{rates[15]:.1f}")
-    st.write("Band mults", band_mults)
-
-    spots = state.get_spots()
-    weights = config.get("weights", {})
-    bandplan = config.get("bandplan", DEFAULT_BANDPLAN)
-    max_age = config.get("max_age", DEFAULT_SPOT_MAX_AGE_MINUTES)
-    sorted_spots = []
-    for spot in spots:
-        score, band_key, is_mult = score_spot(spot, state, weights, max_age, bandplan)
-        sorted_spots.append((score, spot, band_key, is_mult))
-    sorted_spots.sort(key=lambda x: x[0], reverse=True)
-
-    st.subheader("High value spots")
-    rows = []
-    for score, spot, band_key, is_mult in sorted_spots[:20]:
-        rows.append({
-            "dxcall": spot.dx_call,
-            "freq": f"{spot.frequency:.1f}",
-            "band": band_key,
-            "age": f"{spot.age_minutes:.1f}m",
-            "SNR/WPM": f"{spot.snr_db or ''} {spot.wpm or ''}",
-            "status": spot.status,
-            "why": "new mult" if is_mult else "",
-            "score": f"{score:.1f}",
-        })
-    st.dataframe(rows, width="stretch")
-
-    st.subheader("Next best action")
-    actions = best_actions(state, weights, max_age, bandplan, config.get("mycall", ""))
-    st.write("\n".join(actions))
-
-    st.subheader("Event log")
-    log_lines = list(state.event_log)
-    max_lines = st.slider("Max log lines", 10, 200, 50)
-    st.text("\n".join(log_lines[:max_lines]))
-
-
-def render_radio(radio: RadioStatus):
-    st.write(f"Freq: {radio.freq} Hz")
-    st.write(f"TX Freq: {radio.tx_freq} Hz")
-    st.write(f"Mode: {radio.mode}")
-    st.write(f"Running: {radio.is_running}")
-    st.write(f"Transmitting: {radio.is_transmitting}")
-    st.write(f"Focus/Active: {radio.focus_radio_nr}/{radio.active_radio_nr}")
-    st.write(f"Updated: {radio.last_updated.strftime('%H:%M:%S')}")
-
-
 # -----------------------------
-# Streamlit entry point
+# Qt UI
 # -----------------------------
 
 
-def init_state():
-    if "contest_state" not in st.session_state:
-        st.session_state.contest_state = ContestState()
-    if "listener" not in st.session_state:
-        st.session_state.listener = None
+class MainWindow(QtWidgets.QMainWindow):
+    def __init__(self, state: ContestState, config: Dict[str, any]):
+        super().__init__()
+        self.state = state
+        self.config = config
+        self.listener: Optional[UDPListener] = None
+        self.setWindowTitle("AI Contest Assistant - CQ WPX CW")
+        self.resize(1100, 750)
+        self._build_ui()
+        self.refresh_timer = QtCore.QTimer(self)
+        self.refresh_timer.timeout.connect(self.refresh_views)
+        self.refresh_timer.start(1000)
 
+    def _build_ui(self):
+        central = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout()
+        central.setLayout(layout)
 
-def streamlit_main():
-    st.set_page_config(page_title="AI Contest Assistant", layout="wide")
-    init_state()
+        # Controls row
+        controls = QtWidgets.QHBoxLayout()
+        self.host_input = QtWidgets.QLineEdit(self.config.get("host", DEFAULT_HOST))
+        self.port_input = QtWidgets.QSpinBox()
+        self.port_input.setMaximum(65535)
+        self.port_input.setValue(int(self.config.get("port", DEFAULT_PORT)))
+        self.call_input = QtWidgets.QLineEdit(self.config.get("mycall", "N0CALL"))
+        self.max_age_input = QtWidgets.QSpinBox()
+        self.max_age_input.setRange(1, 120)
+        self.max_age_input.setValue(int(self.config.get("max_age", DEFAULT_SPOT_MAX_AGE_MINUTES)))
+        self.start_button = QtWidgets.QPushButton("Start listener")
+        self.stop_button = QtWidgets.QPushButton("Stop")
+        self.stop_button.setEnabled(False)
 
-    st.sidebar.header("Configuration")
-    host = st.sidebar.text_input("Listen host", value=DEFAULT_HOST)
-    port = st.sidebar.number_input("Listen port", value=DEFAULT_PORT, step=1)
-    mycall = st.sidebar.text_input("My call", value="N0CALL")
-    max_age = st.sidebar.number_input("Max spot age (min)", value=DEFAULT_SPOT_MAX_AGE_MINUTES, step=1)
+        controls.addWidget(QtWidgets.QLabel("Host"))
+        controls.addWidget(self.host_input)
+        controls.addWidget(QtWidgets.QLabel("Port"))
+        controls.addWidget(self.port_input)
+        controls.addWidget(QtWidgets.QLabel("My call"))
+        controls.addWidget(self.call_input)
+        controls.addWidget(QtWidgets.QLabel("Max spot age (min)"))
+        controls.addWidget(self.max_age_input)
+        controls.addWidget(self.start_button)
+        controls.addWidget(self.stop_button)
+        layout.addLayout(controls)
 
-    weights = {
-        "mult": st.sidebar.number_input("Weight: new mult", value=10.0),
-        "band_mult": st.sidebar.number_input("Weight: new band mult", value=5.0),
-        "fresh": st.sidebar.number_input("Weight: freshness", value=3.0),
-        "snr": st.sidebar.number_input("Weight: SNR", value=2.0),
-        "band_penalty": st.sidebar.number_input("Penalty: out of bandplan", value=5.0),
-        "dupe_penalty": st.sidebar.number_input("Penalty: dupe", value=4.0),
-    }
+        self.start_button.clicked.connect(self.start_listener)
+        self.stop_button.clicked.connect(self.stop_listener)
 
-    config = {"weights": weights, "bandplan": DEFAULT_BANDPLAN, "max_age": max_age, "mycall": mycall}
+        # Radio panels
+        radio_layout = QtWidgets.QHBoxLayout()
+        self.radio1_widget = self._radio_panel("Radio 1")
+        self.radio2_widget = self._radio_panel("Radio 2")
+        radio_layout.addWidget(self.radio1_widget)
+        radio_layout.addWidget(self.radio2_widget)
+        layout.addLayout(radio_layout)
 
-    listener_running = st.session_state.listener is not None
-    if st.sidebar.button("Start UDP listener", disabled=listener_running):
-        st.session_state.listener = UDPListener(
-            host,
-            int(port),
-            lambda t: process_packet(t, st.session_state.contest_state),
+        # Scoreboard and actions
+        self.score_group = QtWidgets.QGroupBox("Scoreboard")
+        score_layout = QtWidgets.QGridLayout()
+        self.score_group.setLayout(score_layout)
+        self.qso_label = QtWidgets.QLabel("QSOs: 0")
+        self.points_label = QtWidgets.QLabel("Points: 0")
+        self.mults_label = QtWidgets.QLabel("Prefixes: 0")
+        self.rate_label = QtWidgets.QLabel("Rates 1/5/15m: 0/0/0")
+        self.band_mults_label = QtWidgets.QLabel("Band mults: {}")
+        score_layout.addWidget(self.qso_label, 0, 0)
+        score_layout.addWidget(self.points_label, 0, 1)
+        score_layout.addWidget(self.mults_label, 0, 2)
+        score_layout.addWidget(self.rate_label, 1, 0, 1, 2)
+        score_layout.addWidget(self.band_mults_label, 1, 2)
+
+        self.actions_group = QtWidgets.QGroupBox("Next best actions")
+        actions_layout = QtWidgets.QVBoxLayout()
+        self.actions_group.setLayout(actions_layout)
+        self.actions_text = QtWidgets.QTextEdit()
+        self.actions_text.setReadOnly(True)
+        self.actions_text.setFixedHeight(90)
+        actions_layout.addWidget(self.actions_text)
+
+        stats_layout = QtWidgets.QHBoxLayout()
+        stats_layout.addWidget(self.score_group)
+        stats_layout.addWidget(self.actions_group)
+        layout.addLayout(stats_layout)
+
+        # Spots table
+        self.spot_table = QtWidgets.QTableWidget()
+        self.spot_table.setColumnCount(8)
+        self.spot_table.setHorizontalHeaderLabels(
+            ["Call", "Freq", "Band", "Age", "SNR", "WPM", "Status", "Score"]
         )
-        st.session_state.listener.start()
-        st.session_state.contest_state.log_event(f"UDP listener started on {host}:{port}")
+        self.spot_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+        layout.addWidget(QtWidgets.QLabel("High value spots"))
+        layout.addWidget(self.spot_table)
 
-    if st.sidebar.button("Stop UDP listener", disabled=not listener_running):
-        if st.session_state.listener:
-            st.session_state.listener.stop()
-            st.session_state.listener = None
-            st.session_state.contest_state.log_event("UDP listener stopped")
+        # Event log
+        self.log_view = QtWidgets.QTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setMaximumHeight(150)
+        layout.addWidget(QtWidgets.QLabel("Event log"))
+        layout.addWidget(self.log_view)
 
-    render_dashboard(st.session_state.contest_state, config)
+        self.setCentralWidget(central)
+
+    def _radio_panel(self, title: str) -> QtWidgets.QGroupBox:
+        group = QtWidgets.QGroupBox(title)
+        layout = QtWidgets.QFormLayout()
+        group.setLayout(layout)
+        labels = {
+            "freq": QtWidgets.QLabel("-"),
+            "tx_freq": QtWidgets.QLabel("-"),
+            "mode": QtWidgets.QLabel("-"),
+            "running": QtWidgets.QLabel("-"),
+            "transmitting": QtWidgets.QLabel("-"),
+            "focus": QtWidgets.QLabel("-"),
+            "active": QtWidgets.QLabel("-"),
+            "updated": QtWidgets.QLabel("-"),
+        }
+        layout.addRow("Freq", labels["freq"])
+        layout.addRow("TX Freq", labels["tx_freq"])
+        layout.addRow("Mode", labels["mode"])
+        layout.addRow("Running", labels["running"])
+        layout.addRow("Transmitting", labels["transmitting"])
+        layout.addRow("Focus", labels["focus"])
+        layout.addRow("Active", labels["active"])
+        layout.addRow("Updated", labels["updated"])
+        group.labels = labels  # type: ignore[attr-defined]
+        return group
+
+    def refresh_views(self):
+        qsos, points, mults = self.state.totals()
+        band_mults = self.state.band_mults()
+        rates = {w: self.state.qso_rate(w) for w in (1, 5, 15)}
+        self.qso_label.setText(f"QSOs: {qsos}")
+        self.points_label.setText(f"Points: {points}")
+        self.mults_label.setText(f"Prefixes: {mults}")
+        self.rate_label.setText(
+            f"Rates 1/5/15m: {rates[1]:.1f}/{rates[5]:.1f}/{rates[15]:.1f}"
+        )
+        self.band_mults_label.setText(f"Band mults: {band_mults}")
+
+        self._update_radio_panel(self.radio1_widget, self.state.radios[1])
+        self._update_radio_panel(self.radio2_widget, self.state.radios[2])
+
+        # Spots
+        weights = self.config.get("weights", default_weights())
+        bandplan = self.config.get("bandplan", DEFAULT_BANDPLAN)
+        max_age = int(self.max_age_input.value())
+        spots = self.state.get_spots()
+        rows: List[Tuple[float, Spot, str, bool]] = []
+        for spot in spots:
+            score, band_key, is_mult = score_spot(spot, self.state, weights, max_age, bandplan)
+            rows.append((score, spot, band_key, is_mult))
+        rows.sort(key=lambda x: x[0], reverse=True)
+        self.spot_table.setRowCount(min(len(rows), 30))
+        for row_idx, (score, spot, band_key, is_mult) in enumerate(rows[:30]):
+            values = [
+                spot.dx_call,
+                f"{spot.frequency:.1f}",
+                band_key,
+                f"{spot.age_minutes:.1f}m",
+                str(spot.snr_db or ""),
+                str(spot.wpm or ""),
+                "new mult" if is_mult else spot.status,
+                f"{score:.1f}",
+            ]
+            for col, val in enumerate(values):
+                item = QtWidgets.QTableWidgetItem(val)
+                self.spot_table.setItem(row_idx, col, item)
+
+        # Actions
+        actions = best_actions(self.state, weights, max_age, bandplan, self.call_input.text())
+        self.actions_text.setPlainText("\n".join(actions))
+
+        # Event log
+        log_lines = list(self.state.event_log)[:80]
+        self.log_view.setPlainText("\n".join(log_lines))
+
+    def _update_radio_panel(self, panel: QtWidgets.QGroupBox, radio: RadioStatus):
+        labels = panel.labels  # type: ignore[attr-defined]
+        labels["freq"].setText(f"{radio.freq or '-'} Hz")
+        labels["tx_freq"].setText(f"{radio.tx_freq or '-'} Hz")
+        labels["mode"].setText(radio.mode or "-")
+        labels["running"].setText("Yes" if radio.is_running else "No")
+        labels["transmitting"].setText("Yes" if radio.is_transmitting else "No")
+        labels["focus"].setText(str(radio.focus_radio_nr or "-"))
+        labels["active"].setText(str(radio.active_radio_nr or "-"))
+        labels["updated"].setText(radio.last_updated.strftime("%H:%M:%S"))
+
+    def start_listener(self):
+        host = self.host_input.text() or DEFAULT_HOST
+        port = int(self.port_input.value())
+        self.config["host"] = host
+        self.config["port"] = port
+        self.config["mycall"] = self.call_input.text()
+        self.config["max_age"] = int(self.max_age_input.value())
+        if self.listener:
+            return
+
+        try:
+            socket.getaddrinfo(host, port)
+        except OSError as exc:
+            QtWidgets.QMessageBox.critical(self, "Invalid address", str(exc))
+            return
+
+        self.listener = UDPListener(host, port, lambda t: process_packet(t, self.state))
+        self.listener.start()
+        self.state.log_event(f"UDP listener started on {host}:{port}")
+        self.start_button.setEnabled(False)
+        self.stop_button.setEnabled(True)
+
+    def stop_listener(self):
+        if self.listener:
+            self.listener.stop()
+            self.listener = None
+            self.state.log_event("UDP listener stopped")
+        self.start_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
+
+    def closeEvent(self, event: QtGui.QCloseEvent):  # noqa: N802
+        self.stop_listener()
+        super().closeEvent(event)
 
 
-def run_console_listener(host: str, port: int, mycall: str, max_age: int):
-    """Headless mode for running without Streamlit."""
-
-    state = ContestState()
-    weights = {
+def default_weights() -> Dict[str, float]:
+    return {
         "mult": 10.0,
         "band_mult": 5.0,
         "fresh": 3.0,
@@ -590,6 +739,15 @@ def run_console_listener(host: str, port: int, mycall: str, max_age: int):
         "dupe_penalty": 4.0,
     }
 
+
+# -----------------------------
+# Console mode
+# -----------------------------
+
+
+def run_console_listener(host: str, port: int, mycall: str, max_age: int):
+    state = ContestState()
+    weights = default_weights()
     listener = UDPListener(host, port, lambda t: process_packet(t, state))
     listener.start()
     state.log_event(f"Console UDP listener started on {host}:{port}")
@@ -610,7 +768,7 @@ def run_console_listener(host: str, port: int, mycall: str, max_age: int):
             print("--- Contest snapshot ---")
             print(f"QSOs: {qsos}  Points: {points}  Prefixes: {mults}")
             print(
-                f"Rates 1/5/15m: {rates[1]:.1f}/{rates[5]:.1f}/{rates[15]:.1f}"\
+                f"Rates 1/5/15m: {rates[1]:.1f}/{rates[5]:.1f}/{rates[15]:.1f}"
             )
             print("Top spots:")
             for score, spot, band_key, is_mult in ranked[:5]:
@@ -623,7 +781,6 @@ def run_console_listener(host: str, port: int, mycall: str, max_age: int):
             for line in list(state.event_log)[:5]:
                 print("  ", line)
             print("-----------------------\n")
-            # Refresh every 5 seconds
             threading.Event().wait(5)
     except KeyboardInterrupt:
         print("Stopping listener...")
@@ -631,11 +788,30 @@ def run_console_listener(host: str, port: int, mycall: str, max_age: int):
         listener.stop()
 
 
-if __name__ == "__main__":
-    import argparse
+# -----------------------------
+# Entry point
+# -----------------------------
 
+
+def run_gui(host: str, port: int, mycall: str, max_age: int):
+    app = QtWidgets.QApplication(sys.argv)
+    config = {
+        "host": host,
+        "port": port,
+        "mycall": mycall,
+        "max_age": max_age,
+        "weights": default_weights(),
+        "bandplan": DEFAULT_BANDPLAN,
+    }
+    state = ContestState()
+    window = MainWindow(state, config)
+    window.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AI Contest Assistant")
-    parser.add_argument("mode", choices=["console", "streamlit"], nargs="?", default="console")
+    parser.add_argument("mode", choices=["gui", "console"], nargs="?", default="gui")
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--max-age", type=int, default=DEFAULT_SPOT_MAX_AGE_MINUTES)
@@ -645,4 +821,4 @@ if __name__ == "__main__":
     if args.mode == "console":
         run_console_listener(args.host, args.port, args.mycall, args.max_age)
     else:
-        streamlit_main()
+        run_gui(args.host, args.port, args.mycall, args.max_age)
