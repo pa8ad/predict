@@ -12,6 +12,7 @@ python app.py gui --host 0.0.0.0 --port 12060 --contest "CQ WPX CW"
 ```
 Pas host/port/spot-age in de bovenste balk aan en klik **Start listener**. Het scherm toont:
 - Scoreboard (QSOs, punten, prefixes, 1/5/15m rate, band-mults)
+- Bandkaartjes per band (160/80/40/20/15/10) met spots/contacts als stipjes; kies via de checkbox of alleen multipliers of alle spots/contacts getoond worden.
 - Next best actions met een dominante hoofdaanbeveling en alternatieven; de tekstgrootte is live verstelbaar via de `Text size`-spinner.
 
 In de sectie **Rules & Heuristics** (standaard ingeklapt) kies je de contest (CQ WPX CW, CQ WW DX CW of IARU HF) en stel je de gewichten bij voor mult/freshness/SNR/penalty zodat de spot-score aansluit bij jouw operatiestijl. Gebruik de `run_floor`, `rate5_bias` en `rate15_bias` om het omslagpunt tussen "blijven runnen" en "spot pakken" af te stemmen op jouw gewenste rate: hoe hoger deze waardes, hoe meer het advies bij een goede run blijft. Hover over een veld voor een korte toelichting.
@@ -34,7 +35,7 @@ python udp_simulator.py --host 127.0.0.1 --port 12060
 ```
 
 ## Opmerkingen
-- Alleen UDP; geen CAT/rig-control, geen kaarten.
+- Alleen UDP; geen CAT/rig-control. Wereldkaartjes zijn lokaal getekend (geen externe tile-server).
 - Bandplan en gewichten staan in `app.py` en zijn eenvoudig aanpasbaar.
 - De QSO-rates op het scoreboard volgen alleen de gelogde QSO-tijdstempels (1/5/15m windows). De nieuwe run-bias-gewichten (`run_floor`, `rate5_bias`, `rate15_bias`) bepalen hoeveel waarde een lopende run heeft t.o.v. een spot: spots moeten die drempel overstijgen om als advies getoond te worden, anders blijft het advies "Keep running".
 - Als de gekozen host/port al bezet is, verschijnt een melding en blijft de **Start listener**-knop actief zodat je een andere poort kunt kiezen.

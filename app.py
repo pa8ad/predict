@@ -92,6 +92,17 @@ class Spot:
     age_minutes: float
     snr_db: Optional[float] = None
     wpm: Optional[int] = None
+    band: str = ""
+
+
+@dataclass
+class MapPoint:
+    band: str
+    lon: float
+    lat: float
+    label: str
+    is_multiplier: bool
+    kind: str  # "spot" or "contact"
 
 
 @dataclass
@@ -202,6 +213,7 @@ class ContestState:
         ts = parse_timestamp(info.get("timestamp")) or received_at
         snr_db, wpm = parse_comment_metrics(comment)
         age_minutes = max(0.0, (received_at - ts).total_seconds() / 60.0)
+        band = infer_band_from_freq(freq)
         spot = Spot(
             dx_call=dx_call,
             frequency=freq,
@@ -214,6 +226,7 @@ class ContestState:
             age_minutes=age_minutes,
             snr_db=snr_db,
             wpm=wpm,
+            band=band,
         )
         with self.lock:
             if action.lower() == "remove":
@@ -274,6 +287,64 @@ class ContestState:
                     fresh_spots.append(spot)
             self.spots = fresh_spots
             return list(self.spots)
+
+    def map_points(
+        self,
+        profile: "ContestProfile",
+        only_multipliers: bool = False,
+        max_age_minutes: int = DEFAULT_SPOT_MAX_AGE_MINUTES,
+    ) -> Dict[str, List[MapPoint]]:
+        points: Dict[str, List[MapPoint]] = defaultdict(list)
+        per_band_mults, _ = self.multiplier_sets(profile)
+        with self.lock:
+            contacts = list(self.contacts.values())
+            spots = list(self.spots)
+        for contact in contacts:
+            location = approximate_location(contact.call, contact.continent)
+            if not location:
+                continue
+            lon, lat, _ = location
+            is_mult = contact.is_multiplier or bool(profile.contact_key(contact))
+            if only_multipliers and not is_mult:
+                continue
+            points[contact.band].append(
+                MapPoint(
+                    band=contact.band,
+                    lon=lon,
+                    lat=lat,
+                    label=contact.call,
+                    is_multiplier=is_mult,
+                    kind="contact",
+                )
+            )
+
+        now = datetime.now(UTC)
+        cutoff = now - timedelta(minutes=max_age_minutes)
+        for spot in spots:
+            if spot.timestamp < cutoff:
+                continue
+            band = spot.band or infer_band_from_freq(spot.frequency)
+            location = approximate_location(spot.dx_call)
+            if not location:
+                continue
+            lon, lat, _ = location
+            mult_key = profile.spot_key(spot)
+            is_mult = False
+            if mult_key:
+                is_mult = mult_key not in per_band_mults.get(band, set())
+            if only_multipliers and not is_mult:
+                continue
+            points[band].append(
+                MapPoint(
+                    band=band,
+                    lon=lon,
+                    lat=lat,
+                    label=spot.dx_call,
+                    is_multiplier=is_mult,
+                    kind="spot",
+                )
+            )
+        return points
 
     @staticmethod
     def _safe_int(value: Optional[str], default: Optional[int] = None) -> Optional[int]:
@@ -481,6 +552,74 @@ def display_band_label(band: str) -> str:
     return mapping.get(band, band)
 
 
+CONTINENT_CENTERS = {
+    "AF": (20.0, 5.0),
+    "AN": (0.0, -80.0),
+    "AS": (90.0, 25.0),
+    "EU": (10.0, 50.0),
+    "NA": (-100.0, 45.0),
+    "OC": (135.0, -25.0),
+    "SA": (-60.0, -15.0),
+}
+
+
+PREFIX_HINTS: List[Tuple[str, str, float, float]] = [
+    ("K", "NA", -100.0, 40.0),
+    ("N", "NA", -100.0, 40.0),
+    ("W", "NA", -100.0, 40.0),
+    ("VE", "NA", -95.0, 55.0),
+    ("JA", "AS", 138.0, 36.0),
+    ("JE", "AS", 138.0, 36.0),
+    ("7J", "AS", 138.0, 36.0),
+    ("8J", "AS", 138.0, 36.0),
+    ("VK", "OC", 135.0, -25.0),
+    ("ZL", "OC", 174.0, -41.0),
+    ("ZS", "AF", 25.0, -30.0),
+    ("PY", "SA", -52.0, -15.0),
+    ("LU", "SA", -64.0, -34.0),
+    ("CE", "SA", -70.0, -33.0),
+    ("XE", "NA", -102.0, 23.0),
+    ("DL", "EU", 10.0, 51.0),
+    ("F", "EU", 2.0, 46.0),
+    ("G", "EU", -2.0, 53.0),
+    ("GM", "EU", -4.0, 57.0),
+    ("PA", "EU", 5.0, 52.0),
+    ("ON", "EU", 4.0, 50.0),
+    ("SM", "EU", 15.0, 60.0),
+    ("OH", "EU", 25.0, 64.0),
+    ("EA", "EU", -3.0, 40.0),
+    ("CT", "EU", -8.0, 40.0),
+    ("I", "EU", 12.0, 43.0),
+    ("SV", "EU", 23.0, 38.0),
+    ("OK", "EU", 15.0, 49.0),
+    ("OM", "EU", 19.5, 48.7),
+    ("SP", "EU", 19.0, 52.0),
+    ("OE", "EU", 14.0, 47.0),
+    ("HB", "EU", 8.0, 47.0),
+    ("9A", "EU", 16.0, 45.0),
+    ("YU", "EU", 21.0, 44.0),
+    ("HA", "EU", 19.0, 47.0),
+    ("YL", "EU", 25.0, 57.0),
+    ("UR", "EU", 30.0, 49.0),
+    ("UA9", "AS", 65.0, 55.0),
+    ("UA0", "AS", 90.0, 60.0),
+    ("RA", "EU", 37.0, 56.0),
+    ("RK", "EU", 37.0, 56.0),
+    ("RN", "EU", 37.0, 56.0),
+]
+
+
+def approximate_location(call: str, continent: str = "") -> Optional[Tuple[float, float, str]]:
+    call = call.upper()
+    if continent and continent in CONTINENT_CENTERS:
+        lon, lat = CONTINENT_CENTERS[continent]
+        return lon, lat, continent
+    for prefix, cont, lon, lat in PREFIX_HINTS:
+        if call.startswith(prefix):
+            return lon, lat, cont
+    return None
+
+
 def active_running_radio_hint(state: ContestState) -> Optional[int]:
     with state.lock:
         running = [r.radio_nr for r in state.radios.values() if r.is_running]
@@ -683,6 +822,93 @@ def process_packet(text: str, state: ContestState):
 # Qt UI
 # -----------------------------
 
+MAP_WIDTH = 320
+MAP_HEIGHT = 170
+
+SIMPLE_CONTINENTS = [
+    [(-170, 5), (-50, 5), (-50, 75), (-170, 75)],  # North America
+    [(-105, -60), (-30, -60), (-30, 5), (-105, 5)],  # South America
+    [(-10, 35), (60, 35), (60, 70), (-10, 70)],  # Europe
+    [(60, -10), (150, -10), (150, 60), (60, 60)],  # Asia
+    [(0, -40), (55, -40), (55, 5), (0, 5)],  # Africa
+    [(110, -55), (180, -55), (180, -10), (110, -10)],  # Australia/Oceania
+]
+
+
+def lonlat_to_xy(lon: float, lat: float, width: int, height: int) -> Tuple[float, float]:
+    x = (lon + 180.0) / 360.0 * width
+    y = (90.0 - lat) / 180.0 * height
+    return x, y
+
+
+def build_base_map(width: int = MAP_WIDTH, height: int = MAP_HEIGHT) -> QtGui.QPixmap:
+    pix = QtGui.QPixmap(width, height)
+    pix.fill(QtGui.QColor("#0d1b2a"))
+    painter = QtGui.QPainter(pix)
+    painter.setRenderHint(QtGui.QPainter.Antialiasing)
+
+    grid_pen = QtGui.QPen(QtGui.QColor("#1b263b"))
+    grid_pen.setWidth(1)
+    painter.setPen(grid_pen)
+    for lon in range(-180, 181, 60):
+        x, _ = lonlat_to_xy(lon, 0, width, height)
+        painter.drawLine(int(x), 0, int(x), height)
+    for lat in range(-60, 61, 30):
+        _, y = lonlat_to_xy(0, lat, width, height)
+        painter.drawLine(0, int(y), width, int(y))
+
+    land_brush = QtGui.QBrush(QtGui.QColor("#1f6f43"))
+    land_pen = QtGui.QPen(QtGui.QColor("#1f6f43"))
+    painter.setBrush(land_brush)
+    painter.setPen(land_pen)
+    for poly in SIMPLE_CONTINENTS:
+        polygon = QtGui.QPolygonF()
+        for lon, lat in poly:
+            x, y = lonlat_to_xy(lon, lat, width, height)
+            polygon.append(QtCore.QPointF(x, y))
+        painter.drawPolygon(polygon)
+
+    painter.end()
+    return pix
+
+
+class BandMapWidget(QtWidgets.QWidget):
+    def __init__(self, band: str, parent: Optional[QtWidgets.QWidget] = None):
+        super().__init__(parent)
+        self.band = band
+        self.base_map = build_base_map()
+        layout = QtWidgets.QVBoxLayout()
+        layout.setContentsMargins(2, 2, 2, 2)
+        title = QtWidgets.QLabel(f"{display_band_label(band)}m")
+        title.setAlignment(QtCore.Qt.AlignCenter)
+        title.setStyleSheet("font-weight: bold;")
+        self.map_label = QtWidgets.QLabel()
+        self.map_label.setPixmap(self.base_map)
+        self.map_label.setFixedSize(MAP_WIDTH, MAP_HEIGHT)
+        layout.addWidget(title)
+        layout.addWidget(self.map_label)
+        self.setLayout(layout)
+
+    def update_points(self, points: List[MapPoint]):
+        pix = QtGui.QPixmap(self.base_map)
+        painter = QtGui.QPainter(pix)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        for pt in points:
+            x, y = lonlat_to_xy(pt.lon, pt.lat, pix.width(), pix.height())
+            color = QtGui.QColor("#ff6b6b" if pt.is_multiplier else "#ffd166")
+            if pt.kind == "contact" and not pt.is_multiplier:
+                color = QtGui.QColor("#4fd1c5")
+            painter.setBrush(QtGui.QBrush(color))
+            pen = QtGui.QPen(color.darker())
+            pen.setWidth(1)
+            painter.setPen(pen)
+            painter.drawEllipse(QtCore.QPointF(x, y), 4, 4)
+        painter.end()
+        self.map_label.setPixmap(pix)
+
+    def clear(self):
+        self.map_label.setPixmap(self.base_map)
+
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, state: ContestState, config: Dict[str, any]):
@@ -791,6 +1017,23 @@ class MainWindow(QtWidgets.QMainWindow):
         stats_layout.addWidget(self.actions_group)
         layout.addLayout(stats_layout)
 
+        # Map controls and band maps
+        map_filter_layout = QtWidgets.QHBoxLayout()
+        self.mult_only_check = QtWidgets.QCheckBox("Show multipliers only")
+        map_filter_layout.addWidget(self.mult_only_check)
+        map_filter_layout.addStretch(1)
+        layout.addLayout(map_filter_layout)
+
+        self.band_map_widgets: Dict[str, BandMapWidget] = {}
+        maps_group = QtWidgets.QGroupBox("Band spot maps")
+        maps_grid = QtWidgets.QGridLayout()
+        for idx, band in enumerate(["1.8", "3.5", "7", "14", "21", "28"]):
+            widget = BandMapWidget(band)
+            self.band_map_widgets[band] = widget
+            maps_grid.addWidget(widget, idx // 3, idx % 3)
+        maps_group.setLayout(maps_grid)
+        layout.addWidget(maps_group)
+
         # Contest rules and weights (collapsible)
         rules_toggle = QtWidgets.QPushButton("▶ Rules & Heuristics")
         rules_toggle.setCheckable(True)
@@ -870,12 +1113,22 @@ class MainWindow(QtWidgets.QMainWindow):
             self.primary_action.setText("Keep running; no high-value spots available.")
             self.actions_text.clear()
 
+        self._update_maps(profile, max_age)
+
     def _update_action_fonts(self, size: int):
         self.primary_action_font.setPointSize(int(size) + 2)
         self.primary_action.setFont(self.primary_action_font)
         secondary_font = self.actions_text.font()
         secondary_font.setPointSize(int(size))
         self.actions_text.setFont(secondary_font)
+
+    def _update_maps(self, profile: ContestProfile, max_age: int):
+        if not hasattr(self, "band_map_widgets"):
+            return
+        only_mults = self.mult_only_check.isChecked() if hasattr(self, "mult_only_check") else False
+        points_by_band = self.state.map_points(profile, only_mults, max_age)
+        for band, widget in self.band_map_widgets.items():
+            widget.update_points(points_by_band.get(band, []))
 
     def _contest_changed(self, name: str):
         profile = contest_profile(name)
