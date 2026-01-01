@@ -1,6 +1,6 @@
 import argparse
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 import socket
 
 SAMPLE_RADIOINFO = """
@@ -60,7 +60,7 @@ def main():
     parser.add_argument("--mode", choices=["radio", "contact", "spot", "all"], default="all")
     args = parser.parse_args()
 
-    ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     if args.mode in {"radio", "all"}:
         send_packet(args.host, args.port, SAMPLE_RADIOINFO)
         print("Sent RadioInfo")
