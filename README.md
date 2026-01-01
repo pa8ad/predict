@@ -14,7 +14,7 @@ Pas host/port/spot-age in de bovenste balk aan en klik **Start listener**. Het s
 - Scoreboard (QSOs, punten, prefixes, 1/5/15m rate, band-mults)
 - Next best actions met een dominante hoofdaanbeveling en alternatieven; de tekstgrootte is live verstelbaar via de `Text size`-spinner.
 
-In de sectie **Rules & Heuristics** (standaard ingeklapt) kies je de contest (nu: CQ WPX CW) en stel je de gewichten bij voor mult/freshness/SNR/penalty zodat de spot-score aansluit bij jouw operatiestijl. Hover over een veld voor een korte toelichting.
+In de sectie **Rules & Heuristics** (standaard ingeklapt) kies je de contest (nu: CQ WPX CW) en stel je de gewichten bij voor mult/freshness/SNR/penalty zodat de spot-score aansluit bij jouw operatiestijl. Gebruik de nieuwe `run_floor`, `rate5_bias` en `rate15_bias` om het omslagpunt tussen "blijven runnen" en "spot pakken" af te stemmen op jouw gewenste rate: hoe hoger deze waardes, hoe meer het advies bij een goede run blijft. Hover over een veld voor een korte toelichting.
 
 ## Console-modus
 ```
@@ -31,4 +31,4 @@ python udp_simulator.py --host 127.0.0.1 --port 12060
 ## Opmerkingen
 - Alleen UDP; geen CAT/rig-control, geen kaarten.
 - Bandplan en gewichten staan in `app.py` en zijn eenvoudig aanpasbaar.
-- De QSO-rates op het scoreboard volgen alleen de gelogde QSO-tijdstempels (1/5/15m windows) en staan los van de gewichten in **Rules & Heuristics**; de regels beïnvloeden de spot-scores en adviestekst, niet de rate-berekening.
+- De QSO-rates op het scoreboard volgen alleen de gelogde QSO-tijdstempels (1/5/15m windows). De nieuwe run-bias-gewichten (`run_floor`, `rate5_bias`, `rate15_bias`) bepalen hoeveel waarde een lopende run heeft t.o.v. een spot: spots moeten die drempel overstijgen om als advies getoond te worden, anders blijft het advies "Keep running".

@@ -365,6 +365,17 @@ def display_band_label(band: str) -> str:
     return mapping.get(band, band)
 
 
+def active_running_radio_hint(state: ContestState) -> Optional[int]:
+    with state.lock:
+        running = [r.radio_nr for r in state.radios.values() if r.is_running]
+        if running:
+            return running[0]
+        active = [r.active_radio_nr for r in state.radios.values() if r.active_radio_nr]
+        if active:
+            return active[0]
+    return None
+
+
 def is_dupe(spot: Spot, state: ContestState, band: str) -> bool:
     with state.lock:
         for contact in state.contacts.values():
@@ -382,6 +393,14 @@ def best_actions(
 ) -> List[str]:
     del mycall  # placeholder for future LLM integration
     spots = state.get_spots()
+    # Running value: approximate opportunity cost of leaving a good run.
+    rate_5 = state.qso_rate(5)
+    rate_15 = state.qso_rate(15)
+    run_value = (
+        weights.get("run_floor", 1.0)
+        + rate_5 * weights.get("rate5_bias", 0.8)
+        + rate_15 * weights.get("rate15_bias", 0.5)
+    )
     scored = []
     for spot in spots:
         score, band_key, is_mult = score_spot(spot, state, weights, max_age_min, bandplan)
@@ -390,7 +409,7 @@ def best_actions(
     actions = []
     for rank, entry in enumerate(scored[:3]):
         score, spot, band_key, is_mult = entry
-        if score < 0:
+        if score < run_value:
             continue
         why = []
         if is_mult:
@@ -407,7 +426,11 @@ def best_actions(
             f"{rank+1}. Work {spot.dx_call} on {band_label} @ {freq_label} ({why_str}, score {score:.1f})"
         )
     if not actions:
-        actions.append("Keep running; no high-value spots available.")
+        run_hint = active_running_radio_hint(state)
+        suffix = f" on Radio {run_hint}" if run_hint else ""
+        actions.append(
+            f"Keep running{suffix}; no spot beats run value ({run_value:.1f})."
+        )
     return actions
 
 
@@ -637,6 +660,9 @@ class MainWindow(QtWidgets.QMainWindow):
             "snr": "Boost for stronger SNR reports; negative SNR lowers value.",
             "band_penalty": "Penalty for spots outside the configured CW segments.",
             "dupe_penalty": "Penalty for calls already worked on this band.",
+            "run_floor": "Baseline value for staying in a run even with no spots.",
+            "rate5_bias": "Extra stay-in-run value per QSO/min over the last 5 minutes.",
+            "rate15_bias": "Longer-term run value per QSO/min over the last 15 minutes.",
         }
 
         grid_positions = [(i // 2, (i % 2) * 2) for i in range(len(default_weights()))]
@@ -751,6 +777,9 @@ def default_weights() -> Dict[str, float]:
         "snr": 2.0,
         "band_penalty": 5.0,
         "dupe_penalty": 4.0,
+        "run_floor": 1.0,
+        "rate5_bias": 0.8,
+        "rate15_bias": 0.5,
     }
 
 
