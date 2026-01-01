@@ -825,13 +825,60 @@ def process_packet(text: str, state: ContestState):
 MAP_WIDTH = 320
 MAP_HEIGHT = 170
 
-SIMPLE_CONTINENTS = [
-    [(-170, 5), (-50, 5), (-50, 75), (-170, 75)],  # North America
-    [(-105, -60), (-30, -60), (-30, 5), (-105, 5)],  # South America
-    [(-10, 35), (60, 35), (60, 70), (-10, 70)],  # Europe
-    [(60, -10), (150, -10), (150, 60), (60, 60)],  # Asia
-    [(0, -40), (55, -40), (55, 5), (0, 5)],  # Africa
-    [(110, -55), (180, -55), (180, -10), (110, -10)],  # Australia/Oceania
+CONTINENT_OUTLINES: List[List[Tuple[float, float]]] = [
+    [
+        (-168, 72), (-150, 70), (-134, 63), (-120, 56), (-110, 52),
+        (-100, 48), (-90, 44), (-85, 37), (-90, 32), (-98, 28),
+        (-110, 25), (-120, 28), (-130, 34), (-140, 45), (-150, 55),
+        (-160, 65),
+    ],  # North America / Greenland
+    [
+        (-82, 12), (-70, 6), (-66, -5), (-64, -15), (-60, -25),
+        (-58, -35), (-60, -48), (-67, -55), (-76, -52), (-80, -40),
+        (-75, -12),
+    ],  # South America
+    [
+        (-10, 71), (15, 72), (30, 70), (40, 63), (50, 58), (35, 55),
+        (30, 50), (20, 46), (12, 43), (5, 42), (0, 40), (-5, 47),
+        (-10, 55),
+    ],  # Greenland / Iceland bridge to Europe
+    [
+        (-10, 35), (0, 36), (10, 44), (20, 47), (30, 50), (40, 45),
+        (50, 40), (45, 36), (40, 34), (30, 32), (20, 30), (10, 32),
+        (0, 30), (-5, 32),
+    ],  # Europe mainland
+    [
+        (15, 32), (25, 24), (30, 18), (35, 10), (30, 6), (20, 5),
+        (15, -5), (10, -10), (5, -20), (10, -30), (20, -35), (25, -25),
+        (30, -15), (35, 0), (30, 10), (25, 22),
+    ],  # North Africa
+    [
+        (55, 55), (60, 50), (70, 48), (80, 45), (90, 45), (100, 50),
+        (110, 53), (120, 55), (130, 55), (140, 50), (140, 40), (130, 30),
+        (120, 25), (110, 20), (100, 18), (90, 20), (80, 25), (70, 30),
+        (60, 35), (55, 45),
+    ],  # Russia / Siberia arc
+    [
+        (60, 30), (70, 25), (80, 20), (90, 18), (100, 10), (105, 0),
+        (110, -10), (115, -20), (110, -30), (100, -35), (90, -30),
+        (80, -20), (70, -10), (65, 0), (60, 10),
+    ],  # China / SE Asia
+    [
+        (75, -10), (80, -20), (85, -30), (90, -35), (95, -40),
+        (100, -45), (110, -48), (120, -45), (125, -35), (130, -25),
+        (135, -15), (140, -5), (135, 0), (125, -5), (115, -8),
+        (105, -10), (95, -12), (85, -12),
+    ],  # India / Indo-China taper
+    [
+        (110, -10), (120, -15), (130, -20), (140, -25), (150, -30),
+        (155, -40), (152, -48), (145, -50), (135, -48), (125, -44),
+        (120, -38), (115, -32),
+    ],  # Indonesia arc
+    [
+        (112, -10), (118, -12), (125, -16), (135, -18), (140, -22),
+        (150, -26), (155, -33), (150, -40), (145, -45), (135, -48),
+        (125, -46), (118, -40), (114, -32),
+    ],  # Australia
 ]
 
 
@@ -843,30 +890,36 @@ def lonlat_to_xy(lon: float, lat: float, width: int, height: int) -> Tuple[float
 
 def build_base_map(width: int = MAP_WIDTH, height: int = MAP_HEIGHT) -> QtGui.QPixmap:
     pix = QtGui.QPixmap(width, height)
-    pix.fill(QtGui.QColor("#0d1b2a"))
+    pix.fill(QtGui.QColor("#061326"))
     painter = QtGui.QPainter(pix)
     painter.setRenderHint(QtGui.QPainter.Antialiasing)
 
-    grid_pen = QtGui.QPen(QtGui.QColor("#1b263b"))
+    grid_pen = QtGui.QPen(QtGui.QColor("#102040"))
     grid_pen.setWidth(1)
     painter.setPen(grid_pen)
-    for lon in range(-180, 181, 60):
+    for lon in range(-180, 181, 30):
         x, _ = lonlat_to_xy(lon, 0, width, height)
         painter.drawLine(int(x), 0, int(x), height)
-    for lat in range(-60, 61, 30):
+    for lat in range(-60, 91, 30):
         _, y = lonlat_to_xy(0, lat, width, height)
         painter.drawLine(0, int(y), width, int(y))
 
-    land_brush = QtGui.QBrush(QtGui.QColor("#1f6f43"))
-    land_pen = QtGui.QPen(QtGui.QColor("#1f6f43"))
+    land_brush = QtGui.QBrush(QtGui.QColor("#2a9d61"))
+    coast_pen = QtGui.QPen(QtGui.QColor("#0b3824"))
+    coast_pen.setWidth(2)
     painter.setBrush(land_brush)
-    painter.setPen(land_pen)
-    for poly in SIMPLE_CONTINENTS:
-        polygon = QtGui.QPolygonF()
-        for lon, lat in poly:
+    painter.setPen(coast_pen)
+
+    for poly in CONTINENT_OUTLINES:
+        path = QtGui.QPainterPath()
+        first_lon, first_lat = poly[0]
+        first_x, first_y = lonlat_to_xy(first_lon, first_lat, width, height)
+        path.moveTo(first_x, first_y)
+        for lon, lat in poly[1:]:
             x, y = lonlat_to_xy(lon, lat, width, height)
-            polygon.append(QtCore.QPointF(x, y))
-        painter.drawPolygon(polygon)
+            path.lineTo(x, y)
+        path.closeSubpath()
+        painter.drawPath(path)
 
     painter.end()
     return pix
