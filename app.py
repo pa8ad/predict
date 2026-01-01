@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import re
 import socket
 import sys
 import threading
@@ -170,6 +171,8 @@ class ContestState:
     def add_spot(self, info: Dict[str, str], received_at: datetime):
         dx_call = info.get("dxcall", "").upper()
         freq = safe_float(info.get("frequency", 0.0))
+        if freq > 100000:  # handle Hz values by converting to kHz
+            freq = freq / 1000.0
         action = info.get("action", "add")
         mode = info.get("mode", "")
         comment = info.get("comment", "")
@@ -233,9 +236,15 @@ class ContestState:
             )
 
     def get_spots(self) -> List[Spot]:
-        cutoff = datetime.now(UTC) - timedelta(minutes=DEFAULT_SPOT_MAX_AGE_MINUTES)
+        now = datetime.now(UTC)
+        cutoff = now - timedelta(minutes=DEFAULT_SPOT_MAX_AGE_MINUTES)
         with self.lock:
-            self.spots = [s for s in self.spots if s.timestamp >= cutoff]
+            fresh_spots: List[Spot] = []
+            for spot in self.spots:
+                spot.age_minutes = max(0.0, (now - spot.timestamp).total_seconds() / 60.0)
+                if spot.timestamp >= cutoff:
+                    fresh_spots.append(spot)
+            self.spots = fresh_spots
             return list(self.spots)
 
     @staticmethod
@@ -278,32 +287,11 @@ def parse_to_dict(element: ET.Element) -> Dict[str, str]:
     return {child.tag: child.text or "" for child in element}
 
 
-def parse_comment_metrics(comment: str) -> Tuple[Optional[float], Optional[int]]:
-    snr = None
-    wpm = None
-    parts = comment.upper().replace("DB", " DB").split()
-    for i, token in enumerate(parts):
-        if token == "DB" and i > 0:
-            try:
-                snr = float(parts[i - 1])
-            except ValueError:
-                pass
-        if token.endswith("DB"):
-            try:
-                snr = float(token[:-2])
-            except ValueError:
-                pass
-        if token.endswith("WPM"):
-            try:
-                wpm = int(token.replace("WPM", ""))
-            except ValueError:
-                pass
-    return snr, wpm
-
-
 def safe_float(value: Optional[str], default: float = 0.0) -> float:
     try:
-        return float(value)
+        if value is None:
+            return default
+        return float(str(value).replace(",", "."))
     except (TypeError, ValueError):
         return default
 
@@ -418,6 +406,25 @@ def best_actions(
     if not actions:
         actions.append("Keep running; no high-value spots available.")
     return actions
+
+
+def parse_comment_metrics(comment: str) -> Tuple[Optional[float], Optional[int]]:
+    snr = None
+    wpm = None
+    text = comment.upper().replace(",", " ")
+    db_match = re.search(r"(-?\d+(?:\.\d+)?)\s*DB", text)
+    if db_match:
+        try:
+            snr = float(db_match.group(1))
+        except ValueError:
+            snr = None
+    wpm_match = re.search(r"(\d{2,3})\s*WPM", text)
+    if wpm_match:
+        try:
+            wpm = int(wpm_match.group(1))
+        except ValueError:
+            wpm = None
+    return snr, wpm
 
 
 # -----------------------------
@@ -535,6 +542,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.max_age_input = QtWidgets.QSpinBox()
         self.max_age_input.setRange(1, 120)
         self.max_age_input.setValue(int(self.config.get("max_age", DEFAULT_SPOT_MAX_AGE_MINUTES)))
+        self.contest_select = QtWidgets.QComboBox()
+        self.contest_select.addItems(["CQ WPX CW"])
         self.start_button = QtWidgets.QPushButton("Start listener")
         self.stop_button = QtWidgets.QPushButton("Stop")
         self.stop_button.setEnabled(False)
@@ -545,6 +554,8 @@ class MainWindow(QtWidgets.QMainWindow):
         controls.addWidget(self.port_input)
         controls.addWidget(QtWidgets.QLabel("My call"))
         controls.addWidget(self.call_input)
+        controls.addWidget(QtWidgets.QLabel("Contest"))
+        controls.addWidget(self.contest_select)
         controls.addWidget(QtWidgets.QLabel("Max spot age (min)"))
         controls.addWidget(self.max_age_input)
         controls.addWidget(self.start_button)
@@ -589,6 +600,24 @@ class MainWindow(QtWidgets.QMainWindow):
         stats_layout.addWidget(self.score_group)
         stats_layout.addWidget(self.actions_group)
         layout.addLayout(stats_layout)
+
+        # Contest rules and weights
+        rules_group = QtWidgets.QGroupBox("Rules & Heuristics")
+        rules_layout = QtWidgets.QFormLayout()
+        rules_group.setLayout(rules_layout)
+        self.weight_inputs: Dict[str, QtWidgets.QDoubleSpinBox] = {}
+        for key, default in default_weights().items():
+            spin = QtWidgets.QDoubleSpinBox()
+            spin.setRange(-20.0, 50.0)
+            spin.setSingleStep(0.5)
+            spin.setValue(float(self.config.get("weights", {}).get(key, default)))
+            self.weight_inputs[key] = spin
+            rules_layout.addRow(f"{key} weight", spin)
+        self.rules_hint = QtWidgets.QLabel(
+            "CQ WPX CW: Prefix multipliers per band, heuristic scoring for spots."
+        )
+        rules_layout.addRow(self.rules_hint)
+        layout.addWidget(rules_group)
 
         # Spots table
         self.spot_table = QtWidgets.QTableWidget()
@@ -650,7 +679,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_radio_panel(self.radio2_widget, self.state.radios[2])
 
         # Spots
-        weights = self.config.get("weights", default_weights())
+        weights = self._current_weights()
         bandplan = self.config.get("bandplan", DEFAULT_BANDPLAN)
         max_age = int(self.max_age_input.value())
         spots = self.state.get_spots()
@@ -701,6 +730,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config["port"] = port
         self.config["mycall"] = self.call_input.text()
         self.config["max_age"] = int(self.max_age_input.value())
+        self.config["contest"] = self.contest_select.currentText()
+        self.config["weights"] = self._current_weights()
         if self.listener:
             return
 
@@ -723,6 +754,14 @@ class MainWindow(QtWidgets.QMainWindow):
             self.state.log_event("UDP listener stopped")
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
+
+    def _current_weights(self) -> Dict[str, float]:
+        if not hasattr(self, "weight_inputs"):
+            return self.config.get("weights", default_weights())
+        weights = {}
+        for key, spin in self.weight_inputs.items():
+            weights[key] = float(spin.value())
+        return weights
 
     def closeEvent(self, event: QtGui.QCloseEvent):  # noqa: N802
         self.stop_listener()
