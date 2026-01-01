@@ -459,19 +459,32 @@ def parse_comment_metrics(comment: str) -> Tuple[Optional[float], Optional[int]]
 
 
 class UDPListener:
-    def __init__(self, host: str, port: int, handler: Callable[[str], None]):
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        handler: Callable[[str], None],
+        on_error: Optional[Callable[[Exception], None]] = None,
+    ):
         self.host = host
         self.port = port
         self.handler = handler
+        self.on_error = on_error
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self.thread: Optional[threading.Thread] = None
         self.transport = None
+        self.started = threading.Event()
+        self.failed_exc: Optional[Exception] = None
 
-    def start(self):
+    def start(self) -> bool:
         if self.thread and self.thread.is_alive():
-            return
+            return True
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
+        self.started.wait(timeout=2)
+        if self.failed_exc:
+            return False
+        return True
 
     def stop(self):
         if self.loop:
@@ -485,13 +498,24 @@ class UDPListener:
         listen = self.loop.create_datagram_endpoint(
             lambda: UDPProtocol(self.handler), local_addr=(self.host, self.port)
         )
-        self.transport, _ = self.loop.run_until_complete(listen)
+        try:
+            self.transport, _ = self.loop.run_until_complete(listen)
+        except OSError as exc:
+            self.failed_exc = exc
+            self.started.set()
+            if self.on_error:
+                self.on_error(exc)
+            if self.loop:
+                self.loop.close()
+            return
+        self.started.set()
         try:
             self.loop.run_forever()
         finally:
             if self.transport:
                 self.transport.close()
-            self.loop.close()
+            if self.loop:
+                self.loop.close()
 
 
 class UDPProtocol(asyncio.DatagramProtocol):
@@ -724,6 +748,20 @@ class MainWindow(QtWidgets.QMainWindow):
         secondary_font.setPointSize(int(size))
         self.actions_text.setFont(secondary_font)
 
+    def _listener_error(self, exc: Exception):
+        def notify():
+            QtWidgets.QMessageBox.critical(
+                self,
+                "UDP bind failed",
+                f"Could not bind to {self.host_input.text() or DEFAULT_HOST}:{int(self.port_input.value())}\n{exc}",
+            )
+            self.state.log_event(f"UDP listener error: {exc}", level="error")
+            self.listener = None
+            self.start_button.setEnabled(True)
+            self.stop_button.setEnabled(False)
+
+        QtCore.QTimer.singleShot(0, notify)
+
     def start_listener(self):
         host = self.host_input.text() or DEFAULT_HOST
         port = int(self.port_input.value())
@@ -742,8 +780,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self.state.log_event(f"Invalid address: {exc}", level="error")
             return
 
-        self.listener = UDPListener(host, port, lambda t: process_packet(t, self.state))
-        self.listener.start()
+        self.listener = UDPListener(
+            host, port, lambda t: process_packet(t, self.state), self._listener_error
+        )
+        if not self.listener.start():
+            self.listener = None
+            return
+
         self.state.log_event(f"UDP listener started on {host}:{port}")
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
@@ -792,7 +835,12 @@ def run_console_listener(host: str, port: int, mycall: str, max_age: int):
     state = ContestState()
     weights = default_weights()
     listener = UDPListener(host, port, lambda t: process_packet(t, state))
-    listener.start()
+    if not listener.start():
+        err = listener.failed_exc or OSError("Unknown UDP start failure")
+        state.log_event(f"UDP listener failed: {err}", level="error")
+        print(f"UDP listener failed to start: {err}", file=sys.stderr)
+        return
+
     state.log_event(f"Console UDP listener started on {host}:{port}")
 
     try:

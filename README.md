@@ -32,3 +32,4 @@ python udp_simulator.py --host 127.0.0.1 --port 12060
 - Alleen UDP; geen CAT/rig-control, geen kaarten.
 - Bandplan en gewichten staan in `app.py` en zijn eenvoudig aanpasbaar.
 - De QSO-rates op het scoreboard volgen alleen de gelogde QSO-tijdstempels (1/5/15m windows). De nieuwe run-bias-gewichten (`run_floor`, `rate5_bias`, `rate15_bias`) bepalen hoeveel waarde een lopende run heeft t.o.v. een spot: spots moeten die drempel overstijgen om als advies getoond te worden, anders blijft het advies "Keep running".
+- Als de gekozen host/port al bezet is, verschijnt een melding en blijft de **Start listener**-knop actief zodat je een andere poort kunt kiezen.
