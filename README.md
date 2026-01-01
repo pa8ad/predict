@@ -11,13 +11,13 @@ Lokale SO2R helper die uitsluitend N1MM UDP XML-berichten verwerkt (RadioInfo, C
 python app.py gui --host 0.0.0.0 --port 12060 --mycall N0CALL
 ```
 Pas host/port/mycall/spot-age in de bovenste balk aan en klik **Start listener**. Het scherm toont:
-- Radio 1/2 status (freq, run/TX/focus/active)
+- Radio 1/2 status (alleen freq/run/focus voor compacte weergave)
 - Scoreboard (QSOs, punten, prefixes, 1/5/15m rate, band-mults)
 - High value spots met heuristische score (prefix/mult, SNR, WPM, band)
 - Next best actions (top 3)
-- Event log
+- Event log (alleen waarschuwingen/fouten)
 
-In de sectie **Rules & Heuristics** kies je de contest (nu: CQ WPX CW) en stel je de gewichten bij voor mult/freshness/SNR/penalty zodat de spot-score aansluit bij jouw operatiestijl.
+In de sectie **Rules & Heuristics** kies je de contest (nu: CQ WPX CW) en stel je de gewichten bij voor mult/freshness/SNR/penalty zodat de spot-score aansluit bij jouw operatiestijl. Hover over een veld voor een korte toelichting.
 
 ## Console-modus
 ```

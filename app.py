@@ -94,13 +94,13 @@ class ContestState:
         self.total_prefixes: set = set()
         self.qso_timestamps: Deque[datetime] = deque()
         self.spots: List[Spot] = []
-        self.event_log: Deque[str] = deque(maxlen=500)
+        self.event_log: Deque[Tuple[str, str]] = deque(maxlen=500)
         self.lock = threading.Lock()
 
-    def log_event(self, message: str):
+    def log_event(self, message: str, level: str = "info"):
         with self.lock:
             ts = datetime.now(UTC).strftime("%H:%M:%S")
-            self.event_log.appendleft(f"[{ts}] {message}")
+            self.event_log.appendleft((level, f"[{ts}] {message}"))
 
     def update_radio(self, info: Dict[str, str]):
         radio_nr = int(info.get("RadioNr", 0) or 0)
@@ -400,8 +400,10 @@ def best_actions(
         if spot.wpm:
             why.append(f"{spot.wpm} WPM")
         why_str = ", ".join(why) if why else "good spot"
+        band_label = f"{band_key}m" if band_key else "?m"
+        freq_label = f"{spot.frequency:.1f} kHz" if spot.frequency > 0 else "unknown freq"
         actions.append(
-            f"{rank+1}. Work {spot.dx_call} on {band_key}m @ {spot.frequency:.1f} kHz ({why_str}, score {score:.1f})"
+            f"{rank+1}. Work {spot.dx_call} on {band_label} @ {freq_label} ({why_str}, score {score:.1f})"
         )
     if not actions:
         actions.append("Keep running; no high-value spots available.")
@@ -487,7 +489,7 @@ class UDPProtocol(asyncio.DatagramProtocol):
 def process_packet(text: str, state: ContestState):
     element = parse_xml(text)
     if element is None:
-        state.log_event("Malformed XML ignored")
+        state.log_event("Malformed XML ignored", level="warning")
         return
     tag = element.tag.lower()
     info = parse_to_dict(element)
@@ -506,7 +508,7 @@ def process_packet(text: str, state: ContestState):
     elif tag == "spot":
         state.add_spot(info, datetime.now(UTC))
     else:
-        state.log_event(f"Unhandled packet type: {tag}")
+        state.log_event(f"Unhandled packet type: {tag}", level="warning")
 
 
 # -----------------------------
@@ -521,7 +523,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config = config
         self.listener: Optional[UDPListener] = None
         self.setWindowTitle("AI Contest Assistant - CQ WPX CW")
-        self.resize(1100, 750)
+        self.resize(1024, 700)
         self._build_ui()
         self.refresh_timer = QtCore.QTimer(self)
         self.refresh_timer.timeout.connect(self.refresh_views)
@@ -603,20 +605,36 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Contest rules and weights
         rules_group = QtWidgets.QGroupBox("Rules & Heuristics")
-        rules_layout = QtWidgets.QFormLayout()
+        rules_layout = QtWidgets.QGridLayout()
         rules_group.setLayout(rules_layout)
         self.weight_inputs: Dict[str, QtWidgets.QDoubleSpinBox] = {}
-        for key, default in default_weights().items():
+
+        tooltips = {
+            "mult": "Weight for all-time new prefixes (highest priority targets).",
+            "band_mult": "Weight for prefixes new to a specific band (secondary targets).",
+            "fresh": "How quickly older spots lose value; higher = prefer newer spots.",
+            "snr": "Boost for stronger SNR reports; negative SNR lowers value.",
+            "band_penalty": "Penalty for spots outside the configured CW segments.",
+            "dupe_penalty": "Penalty for calls already worked on this band.",
+        }
+
+        grid_positions = [(i // 2, (i % 2) * 2) for i in range(len(default_weights()))]
+        for (key, default), (row, col) in zip(default_weights().items(), grid_positions):
+            label = QtWidgets.QLabel(f"{key} weight")
+            label.setToolTip(tooltips.get(key, ""))
             spin = QtWidgets.QDoubleSpinBox()
             spin.setRange(-20.0, 50.0)
             spin.setSingleStep(0.5)
+            spin.setDecimals(1)
             spin.setValue(float(self.config.get("weights", {}).get(key, default)))
+            spin.setToolTip(tooltips.get(key, ""))
             self.weight_inputs[key] = spin
-            rules_layout.addRow(f"{key} weight", spin)
-        self.rules_hint = QtWidgets.QLabel(
-            "CQ WPX CW: Prefix multipliers per band, heuristic scoring for spots."
-        )
-        rules_layout.addRow(self.rules_hint)
+            rules_layout.addWidget(label, row, col)
+            rules_layout.addWidget(spin, row, col + 1)
+
+        self.rules_hint = QtWidgets.QLabel("Prefix mults per band; tweak weights to tune SO2R advice.")
+        self.rules_hint.setWordWrap(True)
+        rules_layout.addWidget(self.rules_hint, len(grid_positions), 0, 1, 4)
         layout.addWidget(rules_group)
 
         # Spots table
@@ -625,15 +643,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.spot_table.setHorizontalHeaderLabels(
             ["Call", "Freq", "Band", "Age", "SNR", "WPM", "Status", "Score"]
         )
-        self.spot_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+        header = self.spot_table.horizontalHeader()
+        header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
+        header.setStretchLastSection(True)
+        self.spot_table.setMaximumHeight(170)
         layout.addWidget(QtWidgets.QLabel("High value spots"))
         layout.addWidget(self.spot_table)
 
         # Event log
         self.log_view = QtWidgets.QTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setMaximumHeight(150)
-        layout.addWidget(QtWidgets.QLabel("Event log"))
+        self.log_view.setMaximumHeight(120)
+        layout.addWidget(QtWidgets.QLabel("Event log (warnings/errors)"))
         layout.addWidget(self.log_view)
 
         self.setCentralWidget(central)
@@ -644,22 +665,13 @@ class MainWindow(QtWidgets.QMainWindow):
         group.setLayout(layout)
         labels = {
             "freq": QtWidgets.QLabel("-"),
-            "tx_freq": QtWidgets.QLabel("-"),
-            "mode": QtWidgets.QLabel("-"),
             "running": QtWidgets.QLabel("-"),
-            "transmitting": QtWidgets.QLabel("-"),
             "focus": QtWidgets.QLabel("-"),
-            "active": QtWidgets.QLabel("-"),
-            "updated": QtWidgets.QLabel("-"),
         }
+        group.setMaximumWidth(220)
         layout.addRow("Freq", labels["freq"])
-        layout.addRow("TX Freq", labels["tx_freq"])
-        layout.addRow("Mode", labels["mode"])
         layout.addRow("Running", labels["running"])
-        layout.addRow("Transmitting", labels["transmitting"])
         layout.addRow("Focus", labels["focus"])
-        layout.addRow("Active", labels["active"])
-        layout.addRow("Updated", labels["updated"])
         group.labels = labels  # type: ignore[attr-defined]
         return group
 
@@ -688,12 +700,14 @@ class MainWindow(QtWidgets.QMainWindow):
             score, band_key, is_mult = score_spot(spot, self.state, weights, max_age, bandplan)
             rows.append((score, spot, band_key, is_mult))
         rows.sort(key=lambda x: x[0], reverse=True)
-        self.spot_table.setRowCount(min(len(rows), 30))
-        for row_idx, (score, spot, band_key, is_mult) in enumerate(rows[:30]):
+        self.spot_table.setRowCount(min(len(rows), 8))
+        for row_idx, (score, spot, band_key, is_mult) in enumerate(rows[:8]):
+            freq_text = f"{spot.frequency:.1f}" if spot.frequency > 0 else "-"
+            band_text = band_key or "-"
             values = [
                 spot.dx_call,
-                f"{spot.frequency:.1f}",
-                band_key,
+                freq_text,
+                band_text,
                 f"{spot.age_minutes:.1f}m",
                 str(spot.snr_db or ""),
                 str(spot.wpm or ""),
@@ -709,19 +723,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.actions_text.setPlainText("\n".join(actions))
 
         # Event log
-        log_lines = list(self.state.event_log)[:80]
+        warnings_and_errors = [
+            entry for entry in self.state.event_log if entry[0] in {"warning", "error"}
+        ]
+        log_lines = [text for _, text in warnings_and_errors][:80]
         self.log_view.setPlainText("\n".join(log_lines))
 
     def _update_radio_panel(self, panel: QtWidgets.QGroupBox, radio: RadioStatus):
         labels = panel.labels  # type: ignore[attr-defined]
-        labels["freq"].setText(f"{radio.freq or '-'} Hz")
-        labels["tx_freq"].setText(f"{radio.tx_freq or '-'} Hz")
-        labels["mode"].setText(radio.mode or "-")
+        freq_text = f"{radio.freq or '-'} Hz"
+        labels["freq"].setText(freq_text)
         labels["running"].setText("Yes" if radio.is_running else "No")
-        labels["transmitting"].setText("Yes" if radio.is_transmitting else "No")
         labels["focus"].setText(str(radio.focus_radio_nr or "-"))
-        labels["active"].setText(str(radio.active_radio_nr or "-"))
-        labels["updated"].setText(radio.last_updated.strftime("%H:%M:%S"))
 
     def start_listener(self):
         host = self.host_input.text() or DEFAULT_HOST
@@ -739,6 +752,7 @@ class MainWindow(QtWidgets.QMainWindow):
             socket.getaddrinfo(host, port)
         except OSError as exc:
             QtWidgets.QMessageBox.critical(self, "Invalid address", str(exc))
+            self.state.log_event(f"Invalid address: {exc}", level="error")
             return
 
         self.listener = UDPListener(host, port, lambda t: process_packet(t, self.state))
@@ -816,8 +830,8 @@ def run_console_listener(host: str, port: int, mycall: str, max_age: int):
                     f"  {spot.dx_call} {spot.frequency:.1f}kHz {band_key} age {spot.age_minutes:.1f}m "
                     f"SNR {spot.snr_db or '-'} WPM {spot.wpm or '-'} score {score:.1f} {why}"
                 )
-            print("Event log (latest 5):")
-            for line in list(state.event_log)[:5]:
+            print("Event log (warnings/errors):")
+            for _, line in [entry for entry in state.event_log if entry[0] in {"warning", "error"}][:5]:
                 print("  ", line)
             print("-----------------------\n")
             threading.Event().wait(5)
