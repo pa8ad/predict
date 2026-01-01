@@ -16,10 +16,10 @@ Pas host/port/spot-age in de bovenste balk aan en klik **Start listener**. Het s
 
 In de sectie **Rules & Heuristics** (standaard ingeklapt) kies je de contest (CQ WPX CW, CQ WW DX CW of IARU HF) en stel je de gewichten bij voor mult/freshness/SNR/penalty zodat de spot-score aansluit bij jouw operatiestijl. Gebruik de `run_floor`, `rate5_bias` en `rate15_bias` om het omslagpunt tussen "blijven runnen" en "spot pakken" af te stemmen op jouw gewenste rate: hoe hoger deze waardes, hoe meer het advies bij een goede run blijft. Hover over een veld voor een korte toelichting.
 
-Per contest gelden eigen standaardgewichten:
-- **CQ WPX CW**: prefix-multipliers per band, nadruk op nieuwe prefixes en band-prefixes.
-- **CQ WW DX CW**: landen per band (countryprefix als proxy), met iets hogere mult-gewicht en run-bias.
-- **IARU HF**: HQ/administratie-prefixen per band (countryprefix als proxy) met gebalanceerde mult/point nadruk.
+Per contest gelden eigen standaardgewichten, afgeleid van de officiële punt- en multiplier-structuur:
+- **CQ WPX CW** – Punten: 1/2/3 per continent. Multipliers: unieke prefixes per band (zeer bepalend). Heuristieken: `mult=16`, `band_mult=8`, `fresh=3.0`, `snr=1.5`, `band_penalty=5`, `dupe_penalty=6`, `run_floor=1.1`, `rate5_bias=0.9`, `rate15_bias=0.6` om prefixes boven run te prioriteren tenzij de run-rate duidelijk wint.
+- **CQ WW DX CW** – Punten: 1 (zelfde cont) / 2 (anders) / 3 (NA↔SA/OC/AF/AS/EU). Multipliers: landen + zones per band (hier landenproxy). Heuristieken: `mult=12`, `band_mult=7`, `fresh=2.5`, `snr=1.8`, `band_penalty=5`, `dupe_penalty=6`, `run_floor=1.6`, `rate5_bias=1.2`, `rate15_bias=0.8` zodat een goede run zwaarder telt en enkel sterke mult-spots deze drempel passeren.
+- **IARU HF** – Punten: 1 (zelfde ITU-zone), 3 (andere zone zelfde continent), 5 (ander continent/HQ). Multipliers: ITU-zones + HQ per band (landenproxy). Heuristieken: `mult=11`, `band_mult=6`, `fresh=2.8`, `snr=2.0`, `band_penalty=5`, `dupe_penalty=5`, `run_floor=1.4`, `rate5_bias=1.0`, `rate15_bias=0.7` voor balans tussen HQ/zones en behoud van run-rate.
 
 ## Console-modus
 ```
