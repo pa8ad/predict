@@ -4,7 +4,7 @@ import socket
 import threading
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Callable, Deque, Dict, List, Optional, Tuple
 import xml.etree.ElementTree as ET
 
@@ -46,7 +46,7 @@ class RadioStatus:
     is_transmitting: bool = False
     focus_radio_nr: Optional[int] = None
     active_radio_nr: Optional[int] = None
-    last_updated: datetime = field(default_factory=datetime.utcnow)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -95,7 +95,7 @@ class ContestState:
 
     def log_event(self, message: str):
         with self.lock:
-            ts = datetime.utcnow().strftime("%H:%M:%S")
+            ts = datetime.now(UTC).strftime("%H:%M:%S")
             self.event_log.appendleft(f"[{ts}] {message}")
 
     def update_radio(self, info: Dict[str, str]):
@@ -110,7 +110,7 @@ class ContestState:
         status.is_transmitting = info.get("IsTransmitting", "False").lower() == "true"
         status.focus_radio_nr = self._safe_int(info.get("FocusRadioNr"))
         status.active_radio_nr = self._safe_int(info.get("ActiveRadioNr"))
-        status.last_updated = datetime.utcnow()
+        status.last_updated = datetime.now(UTC)
         self.log_event(f"Radio {radio_nr} update: {status.freq} Hz CW={status.mode}")
 
     def add_contact(self, info: Dict[str, str]):
@@ -208,14 +208,14 @@ class ContestState:
             return {band: len(prefixes) for band, prefixes in self.prefixes_by_band.items()}
 
     def qso_rate(self, minutes: int) -> float:
-        cutoff = datetime.utcnow() - timedelta(minutes=minutes)
+        cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
         with self.lock:
             while self.qso_timestamps and self.qso_timestamps[0] < cutoff:
                 self.qso_timestamps.popleft()
             return len([t for t in self.qso_timestamps if t >= cutoff]) / minutes if minutes > 0 else 0.0
 
     def get_spots(self) -> List[Spot]:
-        cutoff = datetime.utcnow() - timedelta(minutes=DEFAULT_SPOT_MAX_AGE_MINUTES)
+        cutoff = datetime.now(UTC) - timedelta(minutes=DEFAULT_SPOT_MAX_AGE_MINUTES)
         with self.lock:
             self.spots = [s for s in self.spots if s.timestamp >= cutoff]
             return list(self.spots)
@@ -235,13 +235,13 @@ class ContestState:
 
 def parse_timestamp(value: Optional[str]) -> datetime:
     if not value:
-        return datetime.utcnow()
+        return datetime.now(UTC)
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y/%m/%d %H:%M:%S.%f"):
         try:
-            return datetime.strptime(value.replace("O", "0"), fmt)
+            return datetime.strptime(value.replace("O", "0"), fmt).replace(tzinfo=UTC)
         except ValueError:
             continue
-    return datetime.utcnow()
+    return datetime.now(UTC)
 
 
 def parse_xml(xml_text: str) -> Optional[ET.Element]:
@@ -452,7 +452,7 @@ def process_packet(text: str, state: ContestState):
         if old_id:
             state.replace_contact(old_id, info)
     elif tag == "spot":
-        state.add_spot(info, datetime.utcnow())
+        state.add_spot(info, datetime.now(UTC))
     else:
         state.log_event(f"Unhandled packet type: {tag}")
 
@@ -503,7 +503,7 @@ def render_dashboard(state: ContestState, config: Dict[str, any]):
             "why": "new mult" if is_mult else "",
             "score": f"{score:.1f}",
         })
-    st.dataframe(rows, use_container_width=True)
+    st.dataframe(rows, width="stretch")
 
     st.subheader("Next best action")
     actions = best_actions(state, weights, max_age, bandplan, config.get("mycall", ""))
