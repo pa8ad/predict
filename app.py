@@ -524,7 +524,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config = config
         self.listener: Optional[UDPListener] = None
         self.setWindowTitle("AI Contest Assistant - CQ WPX CW")
-        self.resize(1024, 700)
+        self.resize(900, 500)
         self._build_ui()
         self.refresh_timer = QtCore.QTimer(self)
         self.refresh_timer.timeout.connect(self.refresh_views)
@@ -583,18 +583,33 @@ class MainWindow(QtWidgets.QMainWindow):
         self.actions_group = QtWidgets.QGroupBox("Next best actions")
         actions_layout = QtWidgets.QVBoxLayout()
         self.actions_group.setLayout(actions_layout)
+
+        size_row = QtWidgets.QHBoxLayout()
+        size_row.addWidget(QtWidgets.QLabel("Text size"))
+        self.action_size_spin = QtWidgets.QSpinBox()
+        self.action_size_spin.setRange(9, 24)
+        self.action_size_spin.setValue(12)
+        self.action_size_spin.setToolTip(
+            "Adjust the font size of the primary and alternate action guidance."
+        )
+        size_row.addWidget(self.action_size_spin)
+        size_row.addStretch(1)
+        actions_layout.addLayout(size_row)
+
         self.primary_action = QtWidgets.QLabel("")
-        primary_font = self.primary_action.font()
-        primary_font.setPointSize(primary_font.pointSize() + 2)
-        primary_font.setBold(True)
-        self.primary_action.setFont(primary_font)
+        self.primary_action_font = self.primary_action.font()
+        self.primary_action_font.setPointSize(self.action_size_spin.value() + 2)
+        self.primary_action_font.setBold(True)
+        self.primary_action.setFont(self.primary_action_font)
         self.primary_action.setStyleSheet(
             "background-color: #e0f2ff; border: 1px solid #90caf9; padding: 6px;"
         )
         self.primary_action.setWordWrap(True)
         self.actions_text = QtWidgets.QTextEdit()
         self.actions_text.setReadOnly(True)
-        self.actions_text.setFixedHeight(70)
+        self.actions_text.setFixedHeight(100)
+        self._update_action_fonts(self.action_size_spin.value())
+        self.action_size_spin.valueChanged.connect(self._update_action_fonts)
         actions_layout.addWidget(self.primary_action)
         actions_layout.addWidget(self.actions_text)
 
@@ -649,34 +664,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         rules_toggle.toggled.connect(toggle_rules)
 
-        # Spots table (collapsible)
-        spots_toggle = QtWidgets.QPushButton("▶ High value spots")
-        spots_toggle.setCheckable(True)
-        spots_toggle.setChecked(False)
-        layout.addWidget(spots_toggle)
-
-        self.spot_container = QtWidgets.QWidget()
-        spot_layout = QtWidgets.QVBoxLayout()
-        self.spot_container.setLayout(spot_layout)
-        self.spot_container.setVisible(False)
-        self.spot_table = QtWidgets.QTableWidget()
-        self.spot_table.setColumnCount(8)
-        self.spot_table.setHorizontalHeaderLabels(
-            ["Call", "Freq", "Band", "Age", "SNR", "WPM", "Status", "Score"]
-        )
-        header = self.spot_table.horizontalHeader()
-        header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
-        header.setStretchLastSection(True)
-        self.spot_table.setMaximumHeight(120)
-        spot_layout.addWidget(self.spot_table)
-        layout.addWidget(self.spot_container)
-
-        def toggle_spots(checked: bool):
-            self.spot_container.setVisible(checked)
-            spots_toggle.setText("▼ High value spots" if checked else "▶ High value spots")
-
-        spots_toggle.toggled.connect(toggle_spots)
-
         self.setCentralWidget(central)
 
     def refresh_views(self):
@@ -692,35 +679,10 @@ class MainWindow(QtWidgets.QMainWindow):
         readable_mults = {f"{display_band_label(b)}m": v for b, v in band_mults.items()}
         self.band_mults_label.setText(f"Band mults: {readable_mults}")
 
-        # Spots
+        # Actions
         weights = self._current_weights()
         bandplan = self.config.get("bandplan", DEFAULT_BANDPLAN)
         max_age = int(self.max_age_input.value())
-        spots = self.state.get_spots()
-        rows: List[Tuple[float, Spot, str, bool]] = []
-        for spot in spots:
-            score, band_key, is_mult = score_spot(spot, self.state, weights, max_age, bandplan)
-            rows.append((score, spot, band_key, is_mult))
-        rows.sort(key=lambda x: x[0], reverse=True)
-        self.spot_table.setRowCount(min(len(rows), 5))
-        for row_idx, (score, spot, band_key, is_mult) in enumerate(rows[:5]):
-            freq_text = f"{spot.frequency:.1f}" if spot.frequency > 0 else "-"
-            band_text = display_band_label(band_key) or "-"
-            values = [
-                spot.dx_call,
-                freq_text,
-                band_text,
-                f"{spot.age_minutes:.1f}m",
-                str(spot.snr_db or ""),
-                str(spot.wpm or ""),
-                "new mult" if is_mult else spot.status,
-                f"{score:.1f}",
-            ]
-            for col, val in enumerate(values):
-                item = QtWidgets.QTableWidgetItem(val)
-                self.spot_table.setItem(row_idx, col, item)
-
-        # Actions
         actions = best_actions(self.state, weights, max_age, bandplan, "")
         if actions:
             self.primary_action.setText(actions[0])
@@ -728,6 +690,13 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             self.primary_action.setText("Keep running; no high-value spots available.")
             self.actions_text.clear()
+
+    def _update_action_fonts(self, size: int):
+        self.primary_action_font.setPointSize(int(size) + 2)
+        self.primary_action.setFont(self.primary_action_font)
+        secondary_font = self.actions_text.font()
+        secondary_font.setPointSize(int(size))
+        self.actions_text.setFont(secondary_font)
 
     def start_listener(self):
         host = self.host_input.text() or DEFAULT_HOST
