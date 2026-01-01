@@ -360,6 +360,11 @@ def infer_band_from_freq(freq_khz: float) -> str:
     return "50"
 
 
+def display_band_label(band: str) -> str:
+    mapping = {"1.8": "160", "3.5": "80", "7": "40", "14": "20", "21": "15", "28": "10"}
+    return mapping.get(band, band)
+
+
 def is_dupe(spot: Spot, state: ContestState, band: str) -> bool:
     with state.lock:
         for contact in state.contacts.values():
@@ -395,7 +400,8 @@ def best_actions(
         if spot.wpm:
             why.append(f"{spot.wpm} WPM")
         why_str = ", ".join(why) if why else "good spot"
-        band_label = f"{band_key}m" if band_key else "?m"
+        band_display = display_band_label(band_key)
+        band_label = f"{band_display}m" if band_display else "?m"
         freq_label = f"{spot.frequency:.1f} kHz" if spot.frequency > 0 else "unknown freq"
         actions.append(
             f"{rank+1}. Work {spot.dx_call} on {band_label} @ {freq_label} ({why_str}, score {score:.1f})"
@@ -559,16 +565,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.start_button.clicked.connect(self.start_listener)
         self.stop_button.clicked.connect(self.stop_listener)
 
-        # Radio summary table (compact single line per radio)
+        # Radio summary table (Radio 1 and 2 on one line)
         self.radio_table = QtWidgets.QTableWidget()
-        self.radio_table.setColumnCount(4)
-        self.radio_table.setHorizontalHeaderLabels(["Radio", "Freq", "Running", "Focus"])
-        self.radio_table.setRowCount(2)
+        self.radio_table.setColumnCount(6)
+        self.radio_table.setHorizontalHeaderLabels(
+            ["R1 Freq", "R1 Run", "R1 Focus", "R2 Freq", "R2 Run", "R2 Focus"]
+        )
+        self.radio_table.setRowCount(1)
         header = self.radio_table.horizontalHeader()
         header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
         header.setStretchLastSection(True)
         self.radio_table.verticalHeader().setVisible(False)
-        self.radio_table.setMaximumHeight(90)
+        self.radio_table.setMaximumHeight(60)
         layout.addWidget(QtWidgets.QLabel("Radios"))
         layout.addWidget(self.radio_table)
 
@@ -595,6 +603,9 @@ class MainWindow(QtWidgets.QMainWindow):
         primary_font.setPointSize(primary_font.pointSize() + 2)
         primary_font.setBold(True)
         self.primary_action.setFont(primary_font)
+        self.primary_action.setStyleSheet(
+            "background-color: #e0f2ff; border: 1px solid #90caf9; padding: 6px;"
+        )
         self.primary_action.setWordWrap(True)
         self.actions_text = QtWidgets.QTextEdit()
         self.actions_text.setReadOnly(True)
@@ -607,10 +618,16 @@ class MainWindow(QtWidgets.QMainWindow):
         stats_layout.addWidget(self.actions_group)
         layout.addLayout(stats_layout)
 
-        # Contest rules and weights
-        rules_group = QtWidgets.QGroupBox("Rules & Heuristics")
+        # Contest rules and weights (collapsible)
+        rules_toggle = QtWidgets.QPushButton("▶ Rules & Heuristics")
+        rules_toggle.setCheckable(True)
+        rules_toggle.setChecked(False)
+        layout.addWidget(rules_toggle)
+
+        rules_group = QtWidgets.QGroupBox()
         rules_layout = QtWidgets.QGridLayout()
         rules_group.setLayout(rules_layout)
+        rules_group.setVisible(False)
         self.weight_inputs: Dict[str, QtWidgets.QDoubleSpinBox] = {}
 
         tooltips = {
@@ -641,7 +658,22 @@ class MainWindow(QtWidgets.QMainWindow):
         rules_layout.addWidget(self.rules_hint, len(grid_positions), 0, 1, 4)
         layout.addWidget(rules_group)
 
-        # Spots table
+        def toggle_rules(checked: bool):
+            rules_group.setVisible(checked)
+            rules_toggle.setText("▼ Rules & Heuristics" if checked else "▶ Rules & Heuristics")
+
+        rules_toggle.toggled.connect(toggle_rules)
+
+        # Spots table (collapsible)
+        spots_toggle = QtWidgets.QPushButton("▶ High value spots")
+        spots_toggle.setCheckable(True)
+        spots_toggle.setChecked(False)
+        layout.addWidget(spots_toggle)
+
+        self.spot_container = QtWidgets.QWidget()
+        spot_layout = QtWidgets.QVBoxLayout()
+        self.spot_container.setLayout(spot_layout)
+        self.spot_container.setVisible(False)
         self.spot_table = QtWidgets.QTableWidget()
         self.spot_table.setColumnCount(8)
         self.spot_table.setHorizontalHeaderLabels(
@@ -650,16 +682,15 @@ class MainWindow(QtWidgets.QMainWindow):
         header = self.spot_table.horizontalHeader()
         header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
         header.setStretchLastSection(True)
-        self.spot_table.setMaximumHeight(140)
-        layout.addWidget(QtWidgets.QLabel("High value spots"))
-        layout.addWidget(self.spot_table)
+        self.spot_table.setMaximumHeight(120)
+        spot_layout.addWidget(self.spot_table)
+        layout.addWidget(self.spot_container)
 
-        # Event log
-        self.log_view = QtWidgets.QTextEdit()
-        self.log_view.setReadOnly(True)
-        self.log_view.setMaximumHeight(120)
-        layout.addWidget(QtWidgets.QLabel("Event log (warnings/errors)"))
-        layout.addWidget(self.log_view)
+        def toggle_spots(checked: bool):
+            self.spot_container.setVisible(checked)
+            spots_toggle.setText("▼ High value spots" if checked else "▶ High value spots")
+
+        spots_toggle.toggled.connect(toggle_spots)
 
         self.setCentralWidget(central)
 
@@ -673,7 +704,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.rate_label.setText(
             f"Rates 1/5/15m: {rates[1]:.1f}/{rates[5]:.1f}/{rates[15]:.1f}"
         )
-        self.band_mults_label.setText(f"Band mults: {band_mults}")
+        readable_mults = {f"{display_band_label(b)}m": v for b, v in band_mults.items()}
+        self.band_mults_label.setText(f"Band mults: {readable_mults}")
 
         self._update_radio_table()
 
@@ -690,7 +722,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.spot_table.setRowCount(min(len(rows), 5))
         for row_idx, (score, spot, band_key, is_mult) in enumerate(rows[:5]):
             freq_text = f"{spot.frequency:.1f}" if spot.frequency > 0 else "-"
-            band_text = band_key or "-"
+            band_text = display_band_label(band_key) or "-"
             values = [
                 spot.dx_call,
                 freq_text,
@@ -714,23 +746,18 @@ class MainWindow(QtWidgets.QMainWindow):
             self.primary_action.setText("Keep running; no high-value spots available.")
             self.actions_text.clear()
 
-        # Event log
-        warnings_and_errors = [
-            entry for entry in self.state.event_log if entry[0] in {"warning", "error"}
-        ]
-        log_lines = [text for _, text in warnings_and_errors][:80]
-        self.log_view.setPlainText("\n".join(log_lines))
-
     def _update_radio_table(self):
-        for row_idx, radio_nr in enumerate(sorted(self.state.radios)):
-            radio = self.state.radios[radio_nr]
-            freq_text = f"{(radio.freq or 0)/100:.2f} kHz" if radio.freq else "-"
+        radios = [self.state.radios[1], self.state.radios[2]]
+        values = []
+        for radio in radios:
+            freq_text = f"{(radio.freq or 0)/100:.1f} kHz" if radio.freq else "-"
             running_text = "Yes" if radio.is_running else "No"
-            focus_text = "Yes" if radio.focus_radio_nr == radio_nr else "No"
-            values = [f"Radio {radio_nr}", freq_text, running_text, focus_text]
-            for col_idx, val in enumerate(values):
-                item = QtWidgets.QTableWidgetItem(val)
-                self.radio_table.setItem(row_idx, col_idx, item)
+            focus_text = "Yes" if radio.focus_radio_nr == radio.radio_nr else "No"
+            values.extend([freq_text, running_text, focus_text])
+
+        for col_idx, val in enumerate(values):
+            item = QtWidgets.QTableWidgetItem(val)
+            self.radio_table.setItem(0, col_idx, item)
 
     def start_listener(self):
         host = self.host_input.text() or DEFAULT_HOST
@@ -821,8 +848,9 @@ def run_console_listener(host: str, port: int, mycall: str, max_age: int):
             print("Top spots:")
             for score, spot, band_key, is_mult in ranked[:5]:
                 why = "new mult" if is_mult else ""
+                band_display = display_band_label(band_key)
                 print(
-                    f"  {spot.dx_call} {spot.frequency:.1f}kHz {band_key} age {spot.age_minutes:.1f}m "
+                    f"  {spot.dx_call} {spot.frequency:.1f}kHz {band_display} age {spot.age_minutes:.1f}m "
                     f"SNR {spot.snr_db or '-'} WPM {spot.wpm or '-'} score {score:.1f} {why}"
                 )
             print("Event log (warnings/errors):")

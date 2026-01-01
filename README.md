@@ -11,13 +11,12 @@ Lokale SO2R helper die uitsluitend N1MM UDP XML-berichten verwerkt (RadioInfo, C
 python app.py gui --host 0.0.0.0 --port 12060
 ```
 Pas host/port/spot-age in de bovenste balk aan en klik **Start listener**. Het scherm toont:
-- Radios samengevat in één regel per set (freq/run/focus)
+- Radios samengevat in één regel voor beide radio’s (freq/run/focus)
 - Scoreboard (QSOs, punten, prefixes, 1/5/15m rate, band-mults)
-- High value spots met heuristische score (prefix/mult, SNR, WPM, band)
-- Next best actions (dominante hoofdaanbeveling + 2 alternatieven)
-- Event log (alleen waarschuwingen/fouten)
+- High value spots met heuristische score (prefix/mult, SNR, WPM, band) — standaard ingeklapt
+- Next best actions met een dominante hoofdaanbeveling en twee alternatieven
 
-In de sectie **Rules & Heuristics** kies je de contest (nu: CQ WPX CW) en stel je de gewichten bij voor mult/freshness/SNR/penalty zodat de spot-score aansluit bij jouw operatiestijl. Hover over een veld voor een korte toelichting.
+In de sectie **Rules & Heuristics** (standaard ingeklapt) kies je de contest (nu: CQ WPX CW) en stel je de gewichten bij voor mult/freshness/SNR/penalty zodat de spot-score aansluit bij jouw operatiestijl. Hover over een veld voor een korte toelichting.
 
 ## Console-modus
 ```
