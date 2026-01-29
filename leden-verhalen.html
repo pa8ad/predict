@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Balkanveteranen – Mijn verhaal</title>
+  <title>Balkanveteranen – Alle verhalen</title>
   <style>
     :root {
       --vn-blue: #0b4ea2;
@@ -168,27 +168,24 @@
       box-shadow: var(--shadow);
     }
 
-    form {
-      display: grid;
-      gap: 14px;
+    .search-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 18px;
     }
 
-    label {
-      font-weight: 600;
-      font-size: 0.95rem;
-    }
-
-    textarea {
-      width: 100%;
+    .search-row input {
+      flex: 1 1 260px;
       padding: 10px 12px;
       border-radius: 10px;
       border: 1px solid #d8e2ef;
-      font-family: inherit;
       font-size: 0.95rem;
       transition: var(--transition);
     }
 
-    textarea:focus {
+    .search-row input:focus {
       outline: none;
       border-color: var(--vn-blue);
       box-shadow: 0 0 0 3px rgba(11, 78, 162, 0.15);
@@ -200,17 +197,17 @@
       margin-top: 8px;
     }
 
-    .story-list {
+    .story-grid {
       display: grid;
-      gap: 10px;
-      margin-top: 12px;
+      gap: 14px;
     }
 
-    .story-item {
-      padding: 12px;
+    .story-card {
+      padding: 14px;
+      border-radius: 12px;
       background: var(--bg-alt);
-      border-radius: 10px;
-      font-size: 0.9rem;
+      display: grid;
+      gap: 6px;
     }
 
     .hidden {
@@ -367,8 +364,8 @@
   <main>
     <section class="page-hero">
       <div class="container">
-        <h1>Mijn verhaal <span id="storyOwnerHeading"></span></h1>
-        <p>Bewaar herinneringen en deel jouw verhaal met andere leden.</p>
+        <h1>Alle verhalen</h1>
+        <p>Bekijk gedeelde herinneringen en zoek op trefwoord.</p>
         <a class="btn btn-secondary" href="leden.html">Terug naar ledenportaal</a>
       </div>
     </section>
@@ -376,19 +373,15 @@
     <section>
       <div class="container">
         <div class="card hidden" id="memberContent">
-          <h3>Schrijf je verhaal</h3>
-          <form id="storyForm">
-            <div>
-              <label for="storyText">Jouw verhaal</label>
-              <textarea id="storyText" rows="4"></textarea>
-            </div>
-            <button class="btn btn-primary" type="submit">Opslaan</button>
-          </form>
-          <div class="story-list" id="storyList"></div>
+          <div class="search-row">
+            <input id="storySearch" type="search" placeholder="Zoek op trefwoord, naam of plek..." />
+            <span class="login-note" id="storyCount"></span>
+          </div>
+          <div class="story-grid" id="storyGrid"></div>
         </div>
         <div class="card" id="loginPrompt">
           <h3>Alleen voor leden</h3>
-          <p>Log in om verhalen te delen.</p>
+          <p>Log in om alle verhalen te bekijken.</p>
           <p class="login-note">Demo: gegevens blijven lokaal in deze browser.</p>
         </div>
       </div>
@@ -429,7 +422,9 @@
     const modalClose = document.getElementById('modalClose');
     const memberContent = document.getElementById('memberContent');
     const loginPrompt = document.getElementById('loginPrompt');
-    const storyOwnerHeading = document.getElementById('storyOwnerHeading');
+    const storyGrid = document.getElementById('storyGrid');
+    const storySearch = document.getElementById('storySearch');
+    const storyCount = document.getElementById('storyCount');
     let lastFocusedElement = null;
 
     const showToast = (message) => {
@@ -497,12 +492,10 @@
         authButton.textContent = `Logout (${state.username || 'lid'})`;
         memberContent.classList.remove('hidden');
         loginPrompt.classList.add('hidden');
-        storyOwnerHeading.textContent = state.username ? `van ${state.username}` : '';
       } else {
         authButton.textContent = 'Login';
         memberContent.classList.add('hidden');
         loginPrompt.classList.remove('hidden');
-        storyOwnerHeading.textContent = '';
       }
     };
 
@@ -553,23 +546,27 @@
     };
 
     const renderStories = () => {
-      const list = document.getElementById('storyList');
-      list.innerHTML = '';
-      const userStories = state.stories.filter((story) => story.author === state.username);
-      if (!userStories.length) {
-        list.innerHTML = '<p class="login-note">Nog geen verhalen opgeslagen.</p>';
+      const query = storySearch.value.trim().toLowerCase();
+      const filtered = state.stories.filter((story) => {
+        const text = `${story.author} ${story.text}`.toLowerCase();
+        return text.includes(query);
+      });
+      storyGrid.innerHTML = '';
+      storyCount.textContent = `${filtered.length} verhaal${filtered.length === 1 ? '' : 'en'}`;
+      if (!filtered.length) {
+        storyGrid.innerHTML = '<p class="login-note">Geen verhalen gevonden.</p>';
         return;
       }
-      userStories.forEach((story) => {
-        const div = document.createElement('div');
-        div.className = 'story-item';
+      filtered.forEach((story) => {
+        const card = document.createElement('div');
+        card.className = 'story-card';
         const createdAt = story.createdAt ? new Date(story.createdAt) : null;
-        div.innerHTML = `
+        card.innerHTML = `
           <strong>${story.author}</strong>
           <p>${story.text}</p>
           ${createdAt ? `<span class="login-note">${createdAt.toLocaleDateString('nl-NL')}</span>` : ''}
         `;
-        list.appendChild(div);
+        storyGrid.appendChild(card);
       });
     };
 
@@ -586,27 +583,6 @@
         }
       });
     };
-
-    document.getElementById('storyForm').addEventListener('submit', (event) => {
-      event.preventDefault();
-      const storyText = document.getElementById('storyText');
-      const text = storyText.value.trim();
-      if (!text) {
-        showToast('Vul een verhaal in.');
-        return;
-      }
-      state.stories.unshift({
-        id: `story-${Date.now()}`,
-        author: state.username || 'Lid',
-        text,
-        createdAt: new Date().toISOString(),
-      });
-      state.stories = state.stories.slice(0, 15);
-      saveState();
-      storyText.value = '';
-      renderStories();
-      showToast('Verhaal opgeslagen.');
-    });
 
     authButton.addEventListener('click', handleAuthClick);
     hamburger.addEventListener('click', () => {
@@ -632,6 +608,8 @@
         closeModal();
       }
     });
+
+    storySearch.addEventListener('input', renderStories);
 
     loadState();
     updateAuthUI();

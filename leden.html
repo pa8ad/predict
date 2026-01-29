@@ -382,8 +382,12 @@
             <p>Onderlinge kennisdeling.</p>
           </a>
           <a class="portal-tile" data-target="leden-verhaal.html" href="leden-verhaal.html">
-            <strong>Mijn verhaal</strong>
+            <strong>Mijn verhaal <span id="storyOwnerName"></span></strong>
             <p>Deel ervaringen met leden.</p>
+          </a>
+          <a class="portal-tile" data-target="leden-verhalen.html" href="leden-verhalen.html">
+            <strong>Alle verhalen</strong>
+            <p>Bekijk en doorzoek verhalen.</p>
           </a>
           <a class="portal-tile" data-target="leden-administratie.html" href="leden-administratie.html">
             <strong>Ledenadministratie</strong>
@@ -425,6 +429,7 @@
     const modalTitle = document.getElementById('modalTitle');
     const modalBody = document.getElementById('modalBody');
     const modalClose = document.getElementById('modalClose');
+    const storyOwnerName = document.getElementById('storyOwnerName');
     let lastFocusedElement = null;
 
     const showToast = (message) => {
@@ -473,6 +478,7 @@
       } else {
         authButton.textContent = 'Login';
       }
+      storyOwnerName.textContent = state.loggedIn && state.username ? `(${state.username})` : '';
       document.getElementById('ledenTeaser').style.display = state.loggedIn ? 'none' : 'block';
       document.querySelectorAll('.portal-tile').forEach((tile) => {
         tile.classList.toggle('disabled', !state.loggedIn);
