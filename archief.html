@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Balkanveteranen – Archief</title>
+  <style>
+    :root {
+      --vn-blue: #0b4ea2;
+      --vn-blue-dark: #08346f;
+      --vn-blue-light: #e7f0fb;
+      --vn-blue-soft: #cfe0f6;
+      --text: #1f2a37;
+      --muted: #5b6b7a;
+      --bg: #ffffff;
+      --bg-alt: #f6f9fc;
+      --shadow: 0 12px 30px rgba(11, 78, 162, 0.08);
+      --radius: 14px;
+      --container: 1120px;
+      --transition: 0.25s ease;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.6;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .container {
+      width: min(100% - 32px, var(--container));
+      margin: 0 auto;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.98);
+      backdrop-filter: blur(6px);
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+    }
+
+    .header-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 0;
+      gap: 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: var(--vn-blue-dark);
+    }
+
+    .logo {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: radial-gradient(circle at top, #fdfdfd, #d8e6f7);
+      border: 2px solid var(--vn-blue);
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+
+    .logo svg {
+      width: 26px;
+      height: 26px;
+      fill: var(--vn-blue);
+    }
+
+    nav {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    nav a {
+      color: var(--muted);
+      font-weight: 500;
+      padding: 6px 0;
+      border-bottom: 2px solid transparent;
+      transition: var(--transition);
+    }
+
+    nav a.active,
+    nav a:hover,
+    nav a:focus-visible {
+      color: var(--vn-blue);
+      border-bottom-color: var(--vn-blue);
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn {
+      border: none;
+      border-radius: 999px;
+      padding: 10px 18px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: var(--transition);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-secondary {
+      background: #fff;
+      color: var(--vn-blue);
+      border: 1px solid var(--vn-blue-soft);
+    }
+
+    .btn-secondary:hover,
+    .btn-secondary:focus-visible {
+      background: var(--vn-blue-light);
+    }
+
+    section {
+      padding: 80px 0;
+    }
+
+    .page-hero {
+      padding: 70px 0 60px;
+      background: var(--vn-blue-light);
+    }
+
+    .page-hero h1 {
+      margin: 0 0 12px;
+      font-size: clamp(2rem, 3vw, 2.8rem);
+      color: var(--vn-blue-dark);
+    }
+
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .tab {
+      padding: 8px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--vn-blue-soft);
+      background: #fff;
+      color: var(--vn-blue);
+      cursor: pointer;
+      font-weight: 600;
+      transition: var(--transition);
+    }
+
+    .tab.active {
+      background: var(--vn-blue);
+      color: #fff;
+      border-color: var(--vn-blue);
+    }
+
+    .archive-grid {
+      display: grid;
+      gap: 18px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    .archive-card {
+      background: #fff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .archive-thumb {
+      height: 120px;
+      background: linear-gradient(135deg, #dfeafb, #b7cdf0);
+      display: grid;
+      place-items: center;
+      color: var(--vn-blue);
+      font-weight: 700;
+    }
+
+    .archive-body {
+      padding: 16px;
+      display: grid;
+      gap: 8px;
+      flex: 1;
+    }
+
+    .tag {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: var(--vn-blue-light);
+      color: var(--vn-blue);
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .tag-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    input[type="search"] {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid #d8e2ef;
+      margin-bottom: 18px;
+      font-family: inherit;
+    }
+
+    .login-note {
+      font-size: 0.9rem;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+
+    .footer {
+      padding: 40px 0;
+      background: #0b1930;
+      color: #fff;
+    }
+
+    .footer p {
+      margin: 0;
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    .hamburger {
+      display: none;
+      flex-direction: column;
+      gap: 4px;
+      width: 30px;
+      cursor: pointer;
+    }
+
+    .hamburger span {
+      height: 3px;
+      background: var(--vn-blue);
+      border-radius: 99px;
+      transition: var(--transition);
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #0b1930;
+      color: #fff;
+      padding: 12px 16px;
+      border-radius: 12px;
+      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.2);
+      opacity: 0;
+      transform: translateY(10px);
+      transition: var(--transition);
+      z-index: 2000;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(11, 25, 48, 0.55);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 1500;
+    }
+
+    .modal-backdrop.active {
+      display: flex;
+    }
+
+    .modal {
+      background: #fff;
+      border-radius: var(--radius);
+      max-width: 640px;
+      width: 100%;
+      padding: 24px;
+      box-shadow: var(--shadow);
+      display: grid;
+      gap: 16px;
+      max-height: 90vh;
+      overflow: auto;
+    }
+
+    .modal header {
+      position: static;
+      box-shadow: none;
+      background: transparent;
+      padding: 0;
+    }
+
+    .modal-close {
+      border: none;
+      background: var(--vn-blue-light);
+      color: var(--vn-blue);
+      padding: 6px 12px;
+      border-radius: 999px;
+      cursor: pointer;
+      justify-self: start;
+    }
+
+    @media (max-width: 980px) {
+      nav {
+        display: none;
+      }
+
+      nav.open {
+        display: grid;
+        position: absolute;
+        right: 16px;
+        top: 70px;
+        background: #fff;
+        padding: 16px;
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        z-index: 1200;
+      }
+
+      nav.open a {
+        padding: 8px 0;
+      }
+
+      .hamburger {
+        display: flex;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container header-inner">
+      <div class="brand">
+        <div class="logo" aria-label="VN embleem">
+          <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+            <path d="M12 2c5.52 0 10 4.48 10 10s-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2zm0 1.5a8.5 8.5 0 0 0-8.5 8.5c0 4.7 3.8 8.5 8.5 8.5s8.5-3.8 8.5-8.5S16.7 3.5 12 3.5zm0 2.5c2.9 0 5.3 2.1 5.8 4.8-1.7-.7-3.8-1.1-5.8-1.1s-4.1.4-5.8 1.1C6.7 8.1 9.1 6 12 6zm-6 7.4c1.6.8 3.7 1.3 6 1.3s4.4-.5 6-1.3c-.7 2.5-3.1 4.4-6 4.4s-5.3-1.9-6-4.4z" />
+          </svg>
+        </div>
+        Balkanveteranen
+      </div>
+      <div class="nav-actions">
+        <nav id="navMenu" aria-label="Hoofdmenu">
+          <a href="index.html" class="nav-link">Home</a>
+          <a href="missies.html" class="nav-link">Missies</a>
+          <a href="vereniging.html" class="nav-link">Vereniging</a>
+          <a href="lidworden.html" class="nav-link">Lid worden</a>
+          <a href="activiteiten.html" class="nav-link">Activiteiten</a>
+          <a href="archief.html" class="nav-link">Archief</a>
+          <a href="leden.html" class="nav-link">Leden</a>
+          <button class="btn btn-secondary" id="authButton">Login</button>
+        </nav>
+        <div class="hamburger" id="hamburger" aria-label="Menu" aria-expanded="false" role="button" tabindex="0">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="page-hero">
+      <div class="container">
+        <h1>Missie Archief</h1>
+        <p>Publiek archief met foto’s, video’s en bronnen over VN-inzet op de Balkan.</p>
+      </div>
+    </section>
+
+    <section>
+      <div class="container">
+        <div class="tabs" id="archiveTabs" role="tablist">
+          <button class="tab active" data-category="all" role="tab">Foto’s</button>
+          <button class="tab" data-category="video" role="tab">Video’s</button>
+          <button class="tab" data-category="krant" role="tab">Krantenartikelen</button>
+          <button class="tab" data-category="boek" role="tab">Boeken & links</button>
+        </div>
+        <input type="search" id="archiveSearch" placeholder="Zoek in het archief…" aria-label="Zoek in het archief" />
+        <div class="archive-grid" id="archiveGrid"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p>Balkanveteranen – met respect, zorg en kameraadschap.</p>
+    </div>
+  </footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="modal-backdrop" id="modalBackdrop" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <header>
+        <h3 id="modalTitle"></h3>
+      </header>
+      <div id="modalBody"></div>
+      <button class="modal-close" id="modalClose" type="button">Sluiten</button>
+    </div>
+  </div>
+
+  <script>
+    const state = {
+      loggedIn: false,
+      username: null,
+      archiveCategory: 'all',
+    };
+
+    const archiveItems = [
+      {
+        id: 1,
+        title: 'Herdenkingsmoment Sarajevo',
+        category: 'foto',
+        snippet: 'Momenten van reflectie tijdens een ceremonie.',
+        tags: ['herdenken', 'ceremonie', 'samenkomst'],
+      },
+      {
+        id: 2,
+        title: 'VN-briefing veldteam',
+        category: 'foto',
+        snippet: 'Korte briefing voorafgaand aan patrouille.',
+        tags: ['briefing', 'team', 'veiligheid'],
+      },
+      {
+        id: 3,
+        title: 'Interview met veteranen',
+        category: 'video',
+        snippet: 'In gesprek over missie-ervaringen en nazorg.',
+        tags: ['interview', 'ervaring', 'nazorg'],
+      },
+      {
+        id: 4,
+        title: 'Documentairefragment VN inzet',
+        category: 'video',
+        snippet: 'Korte documentaire over internationale samenwerking.',
+        tags: ['documentaire', 'samenwerking', 'VN'],
+      },
+      {
+        id: 5,
+        title: 'Krantenartikel: vredeshandhaving',
+        category: 'krant',
+        snippet: 'Terugblik op de rol van observatoren.',
+        tags: ['media', 'vredeshandhaving', 'context'],
+      },
+      {
+        id: 6,
+        title: 'Regionale krant – herdenkingsdienst',
+        category: 'krant',
+        snippet: 'Verslag van een regionale bijeenkomst.',
+        tags: ['herdenking', 'gemeenschap', 'nieuws'],
+      },
+      {
+        id: 7,
+        title: 'Boek: VN-operaties in context',
+        category: 'boek',
+        snippet: 'Samenvatting van bredere VN-missies in de jaren 90.',
+        tags: ['boek', 'context', 'geschiedenis'],
+      },
+      {
+        id: 8,
+        title: 'Kennisbank & links',
+        category: 'boek',
+        snippet: 'Verzameling van publieke bronnen en rapporten.',
+        tags: ['links', 'bronnen', 'informatie'],
+      },
+    ];
+
+    const authButton = document.getElementById('authButton');
+    const hamburger = document.getElementById('hamburger');
+    const navMenu = document.getElementById('navMenu');
+    const toast = document.getElementById('toast');
+    const modalBackdrop = document.getElementById('modalBackdrop');
+    const modalTitle = document.getElementById('modalTitle');
+    const modalBody = document.getElementById('modalBody');
+    const modalClose = document.getElementById('modalClose');
+    let lastFocusedElement = null;
+
+    const showToast = (message) => {
+      toast.textContent = message;
+      toast.classList.add('show');
+      clearTimeout(toast.timeout);
+      toast.timeout = setTimeout(() => {
+        toast.classList.remove('show');
+      }, 3000);
+    };
+
+    const openModal = (title, content) => {
+      lastFocusedElement = document.activeElement;
+      modalTitle.textContent = title;
+      modalBody.innerHTML = '';
+      modalBody.appendChild(content);
+      modalBackdrop.classList.add('active');
+      modalBackdrop.setAttribute('aria-hidden', 'false');
+      const focusable = modalBackdrop.querySelectorAll('button, [href], input, textarea, select, [tabindex]:not([tabindex="-1"])');
+      if (focusable.length) {
+        focusable[0].focus();
+      }
+    };
+
+    const closeModal = () => {
+      modalBackdrop.classList.remove('active');
+      modalBackdrop.setAttribute('aria-hidden', 'true');
+      if (lastFocusedElement) {
+        lastFocusedElement.focus();
+      }
+    };
+
+    const saveState = () => {
+      localStorage.setItem('bvLoggedIn', state.loggedIn ? 'true' : 'false');
+      localStorage.setItem('bvUsername', state.username || '');
+    };
+
+    const loadState = () => {
+      state.loggedIn = localStorage.getItem('bvLoggedIn') === 'true';
+      state.username = localStorage.getItem('bvUsername') || null;
+    };
+
+    const updateAuthUI = () => {
+      if (state.loggedIn) {
+        authButton.textContent = `Logout (${state.username || 'lid'})`;
+      } else {
+        authButton.textContent = 'Login';
+      }
+    };
+
+    const openLoginModal = () => {
+      const wrapper = document.createElement('div');
+      const form = document.createElement('form');
+      form.innerHTML = `
+        <div>
+          <label for="loginUser">Gebruikersnaam</label>
+          <input id="loginUser" type="text" required />
+        </div>
+        <div>
+          <label for="loginPass">Wachtwoord</label>
+          <input id="loginPass" type="password" required />
+        </div>
+        <button class="btn btn-secondary" type="submit">Inloggen</button>
+        <p class="login-note">Demo: gegevens blijven lokaal in deze browser.</p>
+      `;
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const username = form.querySelector('#loginUser').value.trim();
+        const password = form.querySelector('#loginPass').value.trim();
+        if (!username || !password) {
+          showToast('Vul gebruikersnaam en wachtwoord in.');
+          return;
+        }
+        state.loggedIn = true;
+        state.username = username;
+        saveState();
+        updateAuthUI();
+        closeModal();
+        showToast('Welkom terug!');
+      });
+      wrapper.appendChild(form);
+      openModal('Ledenlogin', wrapper);
+    };
+
+    const handleAuthClick = () => {
+      if (state.loggedIn) {
+        state.loggedIn = false;
+        state.username = null;
+        saveState();
+        updateAuthUI();
+        showToast('Je bent uitgelogd.');
+      } else {
+        openLoginModal();
+      }
+    };
+
+    const renderArchive = () => {
+      const grid = document.getElementById('archiveGrid');
+      const query = document.getElementById('archiveSearch').value.toLowerCase();
+      grid.innerHTML = '';
+
+      const filtered = archiveItems.filter((item) => {
+        const inCategory = state.archiveCategory === 'all' || item.category === state.archiveCategory;
+        const haystack = `${item.title} ${item.snippet} ${item.tags.join(' ')}`.toLowerCase();
+        return inCategory && haystack.includes(query);
+      });
+
+      filtered.forEach((item) => {
+        const card = document.createElement('div');
+        card.className = 'archive-card';
+        card.innerHTML = `
+          <div class="archive-thumb">VN archief</div>
+          <div class="archive-body">
+            <strong>${item.title}</strong>
+            <span class="tag">${item.category}</span>
+            <p>${item.snippet}</p>
+            <div class="tag-list">
+              ${item.tags.map((tag) => `<span class="tag">${tag}</span>`).join('')}
+            </div>
+            <button class="btn btn-secondary" type="button">Bekijk</button>
+          </div>
+        `;
+        card.querySelector('button').addEventListener('click', () => {
+          const detail = document.createElement('div');
+          detail.innerHTML = `
+            <p><strong>${item.title}</strong></p>
+            <p>${item.snippet}</p>
+            <p class="login-note">Placeholder voor media of links (publiek toegankelijk).</p>
+          `;
+          openModal('Archiefitem', detail);
+        });
+        grid.appendChild(card);
+      });
+
+      if (!filtered.length) {
+        const empty = document.createElement('div');
+        empty.className = 'archive-card';
+        empty.innerHTML = '<div class="archive-body"><p>Geen resultaten gevonden. Pas je zoekopdracht aan.</p></div>';
+        grid.appendChild(empty);
+      }
+    };
+
+    const setActiveNav = () => {
+      const current = window.location.pathname.split('/').pop() || 'index.html';
+      document.querySelectorAll('.nav-link').forEach((link) => {
+        if (link.getAttribute('href') === current) {
+          link.classList.add('active');
+        }
+      });
+    };
+
+    document.getElementById('archiveSearch').addEventListener('input', renderArchive);
+    document.getElementById('archiveTabs').addEventListener('click', (event) => {
+      const tab = event.target.closest('.tab');
+      if (!tab) return;
+      document.querySelectorAll('.tab').forEach((btn) => btn.classList.remove('active'));
+      tab.classList.add('active');
+      state.archiveCategory = tab.dataset.category;
+      renderArchive();
+    });
+
+    authButton.addEventListener('click', handleAuthClick);
+    hamburger.addEventListener('click', () => {
+      const open = navMenu.classList.toggle('open');
+      hamburger.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    hamburger.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        hamburger.click();
+      }
+    });
+
+    modalBackdrop.addEventListener('click', (event) => {
+      if (event.target === modalBackdrop) {
+        closeModal();
+      }
+    });
+
+    modalClose.addEventListener('click', closeModal);
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && modalBackdrop.classList.contains('active')) {
+        closeModal();
+      }
+    });
+
+    loadState();
+    updateAuthUI();
+    setActiveNav();
+    renderArchive();
+  </script>
+</body>
+</html>
