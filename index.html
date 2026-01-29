@@ -196,6 +196,16 @@
       margin-top: 24px;
     }
 
+    .hero-photo {
+      position: absolute;
+      right: 6%;
+      bottom: 24px;
+      width: min(320px, 35vw);
+      border-radius: 18px;
+      box-shadow: 0 16px 32px rgba(0, 0, 0, 0.28);
+      border: 2px solid rgba(255, 255, 255, 0.45);
+    }
+
     section {
       padding: 80px 0;
     }
@@ -372,6 +382,10 @@
         flex-direction: column;
         align-items: stretch;
       }
+
+      .hero-photo {
+        display: none;
+      }
     }
   </style>
 </head>
@@ -419,6 +433,11 @@
           <a class="btn btn-secondary" href="lidworden.html">Lid worden</a>
         </div>
       </div>
+      <img
+        class="hero-photo"
+        src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5MDAiIGhlaWdodD0iNjAwIiB2aWV3Qm94PSIwIDAgOTAwIDYwMCI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9InNreSIgeDE9IjAiIHgyPSIwIiB5MT0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjOWNjMmYzIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI2U4ZjBmYiIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZ3JvdW5kIiB4MT0iMCIgeDI9IjAiIHkxPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiM1YTZkN2YiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjMmYzYjQ5Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KICA8cmVjdCB3aWR0aD0iOTAwIiBoZWlnaHQ9IjYwMCIgZmlsbD0idXJsKCNza3kpIi8+CiAgPHBhdGggZD0iTTAgMzYwIEwxODAgMjQwIEwzNjAgMzIwIEw1NDAgMjIwIEw3MjAgMzEwIEw5MDAgMjUwIEw5MDAgNjAwIEwwIDYwMCBaIiBmaWxsPSIjYjJjNmRkIi8+CiAgPHBhdGggZD0iTTAgNDAwIEwyMDAgMzAwIEwzODAgMzYwIEw1NjAgMjgwIEw3NDAgMzYwIEw5MDAgMzEwIEw5MDAgNjAwIEwwIDYwMCBaIiBmaWxsPSIjOGZhNmJlIi8+CiAgPHJlY3QgeT0iNDMwIiB3aWR0aD0iOTAwIiBoZWlnaHQ9IjE3MCIgZmlsbD0idXJsKCNncm91bmQpIi8+CiAgPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMTIwIDM2MCkiPgogICAgPHJlY3QgeD0iMCIgeT0iNDAiIHdpZHRoPSI0MjAiIGhlaWdodD0iMTIwIiByeD0iMTgiIGZpbGw9IiNmMmY2ZmIiIHN0cm9rZT0iI2MzZDZlZSIgc3Ryb2tlLXdpZHRoPSI0Ii8+CiAgICA8cmVjdCB4PSIzMCIgeT0iNzAiIHdpZHRoPSIxMjAiIGhlaWdodD0iNjAiIHJ4PSIxMCIgZmlsbD0iIzBiNGVhMiIgb3BhY2l0eT0iMC44NSIvPgogICAgPHJlY3QgeD0iMTcwIiB5PSI3MCIgd2lkdGg9IjExMCIgaGVpZ2h0PSI2MCIgcng9IjEwIiBmaWxsPSIjMGI0ZWEyIiBvcGFjaXR5PSIwLjg1Ii8+CiAgICA8Y2lyY2xlIGN4PSI4MCIgY3k9IjE3MCIgcj0iMzIiIGZpbGw9IiMxZjJhMzciLz4KICAgIDxjaXJjbGUgY3g9IjMyMCIgY3k9IjE3MCIgcj0iMzIiIGZpbGw9IiMxZjJhMzciLz4KICAgIDxyZWN0IHg9IjI5MCIgeT0iMjAiIHdpZHRoPSI5MCIgaGVpZ2h0PSI2MCIgcng9IjgiIGZpbGw9IiMwYjRlYTIiLz4KICAgIDx0ZXh0IHg9IjMxMCIgeT0iNjAiIGZvbnQtc2l6ZT0iMTgiIGZpbGw9IiNmZmZmZmYiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiI+VU48L3RleHQ+CiAgPC9nPgogIDxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDYwMCAyOTApIj4KICAgIDxjaXJjbGUgY3g9IjcwIiBjeT0iNzAiIHI9IjUyIiBmaWxsPSIjZDRlM2Y2Ii8+CiAgICA8cGF0aCBkPSJNNzAgMTAgQTYwIDYwIDAgMCAxIDEzMCA3MCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMGI0ZWEyIiBzdHJva2Utd2lkdGg9IjYiLz4KICAgIDxwYXRoIGQ9Ik0xMCA3MCBBNjAgNjAgMCAwIDAgNzAgMTMwIiBmaWxsPSJub25lIiBzdHJva2U9IiMwYjRlYTIiIHN0cm9rZS13aWR0aD0iNiIvPgogICAgPHRleHQgeD0iNTIiIHk9Ijc4IiBmb250LXNpemU9IjIwIiBmaWxsPSIjMGI0ZWEyIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiPlVOPC90ZXh0PgogIDwvZz4KPC9zdmc+"
+        alt="UNMO-observatiemissie op de Balkan"
+      />
     </section>
 
     <section class="alt">
